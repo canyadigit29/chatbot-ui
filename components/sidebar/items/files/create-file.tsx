@@ -118,7 +118,6 @@ export const CreateFile: FC<CreateFileProps> = ({
 
     const fileRecord: TablesInsert<"files"> = {
       user_id: profile.id,
-      workspace_id: selectedWorkspace.id, // Added workspace_id
       name: currentFile.name,
       description: description,
       file_path: "",
