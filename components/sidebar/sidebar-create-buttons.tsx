@@ -1,7 +1,8 @@
 import { useChatHandler } from "@/components/chat/chat-hooks/use-chat-handler"
 import { ChatbotUIContext } from "@/context/context"
 import { createFolder } from "@/db/folders"
-import { ContentType } from "@/types"
+import { ContentType } from "@/types" // Adjusted import for Tables, TablesInsert
+import { Tables, TablesInsert } from "@/supabase/types" // Ensure this path is correct
 import { IconFolderPlus, IconPlus } from "@tabler/icons-react"
 import { FC, useContext, useState } from "react"
 import { Button } from "../ui/button"
@@ -12,6 +13,8 @@ import { CreateModel } from "./items/models/create-model"
 import { CreatePreset } from "./items/presets/create-preset"
 import { CreatePrompt } from "./items/prompts/create-prompt"
 import { CreateTool } from "./items/tools/create-tool"
+import { createFileBasedOnExtension } from "@/db/files"
+import { toast } from "sonner"
 
 interface SidebarCreateButtonsProps {
   contentType: ContentType
@@ -22,7 +25,7 @@ export const SidebarCreateButtons: FC<SidebarCreateButtonsProps> = ({
   contentType,
   hasData
 }) => {
-  const { profile, selectedWorkspace, folders, setFolders } =
+  const { profile, selectedWorkspace, folders, setFolders, setFiles } =
     useContext(ChatbotUIContext)
   const { handleNewChat } = useChatHandler()
 
@@ -33,6 +36,29 @@ export const SidebarCreateButtons: FC<SidebarCreateButtonsProps> = ({
   const [isCreatingAssistant, setIsCreatingAssistant] = useState(false)
   const [isCreatingTool, setIsCreatingTool] = useState(false)
   const [isCreatingModel, setIsCreatingModel] = useState(false)
+
+  // Function to handle the actual file creation, to be passed to CreateFile
+  const handleFileCreate = async (
+    fileRecord: TablesInsert<"files">,
+    fileData: File // workspaceId will come from selectedWorkspace in context
+  ) => {
+    if (!profile || !selectedWorkspace) {
+      toast.error("Profile or workspace not available.")
+      throw new Error("Profile or workspace not available")
+    }
+
+    const embeddingsProvider = selectedWorkspace.embeddings_provider as "openai" | "local"
+
+    const createdFile = await createFileBasedOnExtension(
+      fileData,
+      fileRecord,
+      selectedWorkspace.id, // Use selectedWorkspace.id from context
+      embeddingsProvider
+    )
+
+    setFiles((prevFiles: Tables<"files">[]) => [...prevFiles, createdFile])
+    return createdFile
+  }
 
   const handleCreateFolder = async () => {
     if (!profile) return
@@ -125,7 +151,11 @@ export const SidebarCreateButtons: FC<SidebarCreateButtonsProps> = ({
       )}
 
       {isCreatingFile && (
-        <CreateFile isOpen={isCreatingFile} onOpenChange={setIsCreatingFile} />
+        <CreateFile
+          isOpen={isCreatingFile}
+          onOpenChange={setIsCreatingFile}
+          createFunction={handleFileCreate} // Pass the function here
+        />
       )}
 
       {isCreatingCollection && (
