@@ -94,6 +94,13 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
     }
   }
 
+  // Skip handler
+  const handleSkip = () => {
+    setShowDuplicateDialog(false)
+    setDuplicateFile(null)
+    handleSuccess()
+  }
+
   // Overwrite handler
   const handleOverwrite = async () => {
     setShowDuplicateDialog(false)
@@ -104,41 +111,109 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
     triggerUpload()
   }
 
-  // Skip handler
-  const handleSkip = () => {
-    setShowDuplicateDialog(false)
-    setDuplicateFile(null)
-    handleSuccess()
-  }
-
   // Actually trigger the upload for SidebarCreateItem
   const triggerUpload = () => {
-    // This will cause SidebarCreateItem to call its createFunction
-    setIsTyping(false)
-    pendingCreateState.current = {
-      file: currentFile,
-      user_id: profile.user_id,
-      name: currentFile.name.split(".").slice(0, -1).join("."),
-      description,
-      file_path: "",
-      size: currentFile.size || 0,
-      tokens: 0,
-      type: currentFile.type || 0
+    console.log("Inside triggerUpload for:", currentFile?.name); // NEW DEBUG LINE
+    if (!currentFile || !profile || !selectedWorkspace) {
+      console.error("triggerUpload: Missing currentFile, profile, or selectedWorkspace");
+      // Potentially advance queue or show error
+      advanceQueueOrEnd();
+      return;
     }
-    pendingWorkspaceId.current = selectedWorkspace.id
-    setTimeout(() => setIsTyping(true), 0) // force rerender
+
+    const fileRecord: TablesInsert<"files"> = {
+      user_id: profile.id,
+      name: currentFile.name, // Using original name for the record
+      description: description,
+      file_path: "", // Will be updated after upload
+      size: currentFile.size,
+      tokens: 0, // Will be updated after processing
+      type: currentFile.type
+    };
+
+    // Call the createFunction passed from SidebarCreateItem
+    // This is expected to be `customCreateHandler`
+    pendingCreateState.current = { file: currentFile, record: fileRecord };
+    pendingWorkspaceId.current = selectedWorkspace.id;
+
+    // Directly call the createFunction which should be customCreateHandler
+    if (createFunction) { // createFunction is customCreateHandler
+        console.log("Calling createFunction (customCreateHandler) from triggerUpload"); // NEW DEBUG LINE
+        createFunction(fileRecord, selectedWorkspace.id, currentFile);
+    } else {
+        console.error("createFunction is not defined in triggerUpload");
+        advanceQueueOrEnd();
+    }
+  };
+
+  const advanceQueueOrEnd = (success = false) => {
+    if (success) {
+      console.log("File processed successfully:", currentFile?.name);
+    } else {
+      console.log("File processing failed or skipped:", currentFile?.name);
+    }
+    // Move to the next file in the queue
+    if (currentFileIndex < selectedFiles.length - 1) {
+      setCurrentFileIndex(idx => idx + 1)
+    } else {
+      // Reset state
+      setSelectedFiles([])
+      setCurrentFileIndex(0)
+      setQueueActive(false)
+    }
   }
 
-  // Custom create handler for SidebarCreateItem
-  const customCreateHandler = async (createState: any, workspaceId: string): Promise<any> => {
-    // Only upload if triggered by triggerUpload
-    if (!pendingCreateState.current || !pendingWorkspaceId.current) return null
-    const state = pendingCreateState.current
-    const wsId = pendingWorkspaceId.current
-    pendingCreateState.current = null
-    pendingWorkspaceId.current = null
-    // ...existing file upload logic...
-    return undefined // Let SidebarCreateItem handle the rest
+  const customCreateHandler = async (
+    fileRecord: TablesInsert<"files">,
+    workspaceId: string,
+    fileData: File
+  ) => {
+    console.log("Inside customCreateHandler for:", fileData.name); // NEW DEBUG LINE
+    if (!profile) {
+      console.error("customCreateHandler: Profile is not available.");
+      advanceQueueOrEnd();
+      return;
+    }
+    if (!workspaceId) {
+      console.error("customCreateHandler: Workspace ID is not available.");
+      advanceQueueOrEnd();
+      return;
+    }
+
+    try {
+      setIsTyping(true); // Show loading state
+
+      const createdFile = await createFileBasedOnExtension(
+        fileData,
+        fileRecord,
+        workspaceId,
+        // @ts-ignore
+        profile.embeddingsProvider // Assuming profile has this
+      );
+
+      console.log("File created in DB and processed:", createdFile.name); // NEW DEBUG LINE
+
+      // Update global state - this should be handled by the context or a global state manager
+      // For now, let's assume setFiles is available and works correctly
+      // setFiles((prevFiles: Tables<"files">[]) => [...prevFiles, createdFile]);
+
+      toast.success(`File "${createdFile.name}" uploaded and processed.`);
+      advanceQueueOrEnd(true); // Indicate success
+    } catch (error) {
+      console.error("Error in customCreateHandler:", error); // NEW DEBUG LINE
+      toast.error(`Error uploading file "${fileData.name}": ${(error as Error).message}`);
+      advanceQueueOrEnd(false); // Indicate failure
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const renderFileListItem = (file: File, index: number) => {
+    return (
+      <li key={file.name + index} style={{ fontWeight: index === currentFileIndex ? 'bold' : 'normal' }}>
+        {file.name}
+      </li>
+    )
   }
 
   if (!profile) return null
