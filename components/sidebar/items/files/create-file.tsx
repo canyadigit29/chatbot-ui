@@ -16,8 +16,14 @@ interface CreateFileProps {
   onOpenChange: (isOpen: boolean) => void
 }
 
-export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
-  const { profile, selectedWorkspace } = useContext(ChatbotUIContext)
+export const CreateFile: FC<CreateFileProps> = ({
+  isOpen,
+  onOpenChange,
+  createFunction // Destructured prop
+}) => {
+  console.log("CreateFile component: createFunction prop is", typeof createFunction, createFunction); // DEBUG LINE A
+
+  const { profile, selectedWorkspace, setFiles } = useContext(ChatbotUIContext)
 
   const [name, setName] = useState("")
   const [isTyping, setIsTyping] = useState(false)
@@ -66,9 +72,9 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
 
   // Main file processing logic
   const processCurrentFile = async () => {
-    console.log("Inside processCurrentFile for:", currentFile?.name); // DEBUG LINE 4
+    console.log("Inside processCurrentFile for:", currentFile?.name); // Existing DEBUG LINE 4
     if (!currentFile || !selectedWorkspace) {
-      console.log("processCurrentFile: currentFile or selectedWorkspace is missing"); // DEBUG LINE 5
+      console.log("processCurrentFile: currentFile or selectedWorkspace is missing"); // Existing DEBUG LINE 5
       return
     }
     // Check for duplicate
@@ -80,6 +86,7 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
       return
     }
     // No duplicate, trigger upload
+    console.log("processCurrentFile: typeof createFunction before calling triggerUpload is", typeof createFunction); // DEBUG LINE B
     triggerUpload(createFunction); // Pass the createFunction prop here
   }
 
@@ -113,7 +120,7 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
 
   // Actually trigger the upload for SidebarCreateItem
   const triggerUpload = (passedCreateFunction: typeof createFunction) => {
-    console.log("Inside triggerUpload for:", currentFile?.name); // NEW DEBUG LINE
+    console.log("Inside triggerUpload for:", currentFile?.name); 
     if (!currentFile || !profile || !selectedWorkspace) {
       console.error("triggerUpload: Missing currentFile, profile, or selectedWorkspace");
       // Potentially advance queue or show error
@@ -138,10 +145,10 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
 
     // Directly call the createFunction which should be customCreateHandler
     if (passedCreateFunction) { 
-        console.log("Calling passedCreateFunction (customCreateHandler) from triggerUpload"); // NEW DEBUG LINE
+        console.log("Calling passedCreateFunction (customCreateHandler) from triggerUpload"); 
         passedCreateFunction(fileRecord, selectedWorkspace.id, currentFile);
     } else {
-        console.error("passedCreateFunction is not defined in triggerUpload");
+        console.error("passedCreateFunction is not defined in triggerUpload (it was undefined when passed)");
         advanceQueueOrEnd();
     }
   };
