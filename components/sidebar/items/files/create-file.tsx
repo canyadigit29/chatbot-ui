@@ -9,7 +9,8 @@ import { FILE_DESCRIPTION_MAX, FILE_NAME_MAX } from "@/db/limits"
 import { TablesInsert } from "@/supabase/types"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { getFileByNameInWorkspace, deleteFile } from "@/db/files"
+import { getFileByNameInWorkspace, deleteFile, createFileBasedOnExtension } from "@/db/files"
+import { toast } from "sonner"
 
 interface CreateFileProps {
   isOpen: boolean
@@ -18,11 +19,8 @@ interface CreateFileProps {
 
 export const CreateFile: FC<CreateFileProps> = ({
   isOpen,
-  onOpenChange,
-  createFunction // Destructured prop
+  onOpenChange
 }) => {
-  console.log("CreateFile component: createFunction prop is", typeof createFunction, createFunction); // DEBUG LINE A
-
   const { profile, selectedWorkspace, setFiles } = useContext(ChatbotUIContext)
 
   const [name, setName] = useState("")
@@ -46,21 +44,18 @@ export const CreateFile: FC<CreateFileProps> = ({
       setQueueActive(true)
       setCurrentFileIndex(0)
     }
-  }, [selectedFiles, queueActive]) // Added queueActive to dependencies as good practice
+  }, [selectedFiles, queueActive])
 
   // When queueActive or currentFileIndex changes, process the next file
   useEffect(() => {
-    console.log("Queue/Index Effect: queueActive=", queueActive, "currentFile=", currentFile); // DEBUG LINE 1
     if (queueActive && currentFile) {
-      console.log("Calling processCurrentFile for:", currentFile.name); // DEBUG LINE 2
       processCurrentFile()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queueActive, currentFile]) // Changed dependency from currentFileIndex to currentFile for more directness
+  }, [queueActive, currentFile])
 
   const handleSelectedFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : []
-    console.log("Files selected:", files); // DEBUG LINE 3
     if (files.length > 0) {
       setSelectedFiles(files)
       setName(files[0].name.split(".").slice(0, -1).join("."))
@@ -72,22 +67,18 @@ export const CreateFile: FC<CreateFileProps> = ({
 
   // Main file processing logic
   const processCurrentFile = async () => {
-    console.log("Inside processCurrentFile for:", currentFile?.name); // Existing DEBUG LINE 4
     if (!currentFile || !selectedWorkspace) {
-      console.log("processCurrentFile: currentFile or selectedWorkspace is missing"); // Existing DEBUG LINE 5
       return
     }
     // Check for duplicate
     const existing = await getFileByNameInWorkspace(currentFile.name, selectedWorkspace.id)
-    console.log("Result of getFileByNameInWorkspace:", existing)
     if (existing) {
       setDuplicateFile(existing)
       setShowDuplicateDialog(true)
       return
     }
     // No duplicate, trigger upload
-    console.log("processCurrentFile: typeof createFunction before calling triggerUpload is", typeof createFunction); // DEBUG LINE B
-    triggerUpload(createFunction); // Pass the createFunction prop here
+    triggerUpload()
   }
 
   // Called by SidebarCreateItem onSuccess
@@ -119,101 +110,54 @@ export const CreateFile: FC<CreateFileProps> = ({
   }
 
   // Actually trigger the upload for SidebarCreateItem
-  const triggerUpload = (passedCreateFunction: typeof createFunction) => {
-    console.log("Inside triggerUpload for:", currentFile?.name); 
+  const triggerUpload = async () => {
     if (!currentFile || !profile || !selectedWorkspace) {
-      console.error("triggerUpload: Missing currentFile, profile, or selectedWorkspace");
-      // Potentially advance queue or show error
       advanceQueueOrEnd();
       return;
     }
 
     const fileRecord: TablesInsert<"files"> = {
       user_id: profile.id,
-      name: currentFile.name, // Using original name for the record
+      name: currentFile.name,
       description: description,
-      file_path: "", // Will be updated after upload
+      file_path: "",
       size: currentFile.size,
-      tokens: 0, // Will be updated after processing
+      tokens: 0,
       type: currentFile.type
     };
 
-    // Call the createFunction passed from SidebarCreateItem
-    // This is expected to be `customCreateHandler`
     pendingCreateState.current = { file: currentFile, record: fileRecord };
     pendingWorkspaceId.current = selectedWorkspace.id;
 
-    // Directly call the createFunction which should be customCreateHandler
-    if (passedCreateFunction) { 
-        console.log("Calling passedCreateFunction (customCreateHandler) from triggerUpload"); 
-        passedCreateFunction(fileRecord, selectedWorkspace.id, currentFile);
-    } else {
-        console.error("passedCreateFunction is not defined in triggerUpload (it was undefined when passed)");
-        advanceQueueOrEnd();
+    try {
+      setIsTyping(true);
+      const createdFile = await createFileBasedOnExtension(
+        currentFile,
+        fileRecord,
+        selectedWorkspace.id,
+        // @ts-ignore
+        profile.embeddingsProvider
+      );
+      setFiles((prevFiles: any[]) => [...prevFiles, createdFile]);
+      toast.success(`File "${createdFile.name}" uploaded and processed.`);
+      advanceQueueOrEnd(true);
+    } catch (error) {
+      toast.error(`Error uploading file "${currentFile.name}": ${(error as Error).message}`);
+      advanceQueueOrEnd(false);
+    } finally {
+      setIsTyping(false);
     }
   };
 
   const advanceQueueOrEnd = (success = false) => {
-    if (success) {
-      console.log("File processed successfully:", currentFile?.name);
-    } else {
-      console.log("File processing failed or skipped:", currentFile?.name);
-    }
-    // Move to the next file in the queue
     if (currentFileIndex < selectedFiles.length - 1) {
       setCurrentFileIndex(idx => idx + 1)
     } else {
-      // Reset state
       setSelectedFiles([])
       setCurrentFileIndex(0)
       setQueueActive(false)
     }
   }
-
-  const customCreateHandler = async (
-    fileRecord: TablesInsert<"files">,
-    workspaceId: string,
-    fileData: File
-  ) => {
-    console.log("Inside customCreateHandler for:", fileData.name); // NEW DEBUG LINE
-    if (!profile) {
-      console.error("customCreateHandler: Profile is not available.");
-      advanceQueueOrEnd();
-      return;
-    }
-    if (!workspaceId) {
-      console.error("customCreateHandler: Workspace ID is not available.");
-      advanceQueueOrEnd();
-      return;
-    }
-
-    try {
-      setIsTyping(true); // Show loading state
-
-      const createdFile = await createFileBasedOnExtension(
-        fileData,
-        fileRecord,
-        workspaceId,
-        // @ts-ignore
-        profile.embeddingsProvider // Assuming profile has this
-      );
-
-      console.log("File created in DB and processed:", createdFile.name); // NEW DEBUG LINE
-
-      // Update global state - this should be handled by the context or a global state manager
-      // For now, let's assume setFiles is available and works correctly
-      // setFiles((prevFiles: Tables<"files">[]) => [...prevFiles, createdFile]);
-
-      toast.success(`File "${createdFile.name}" uploaded and processed.`);
-      advanceQueueOrEnd(true); // Indicate success
-    } catch (error) {
-      console.error("Error in customCreateHandler:", error); // NEW DEBUG LINE
-      toast.error(`Error uploading file "${fileData.name}": ${(error as Error).message}`);
-      advanceQueueOrEnd(false); // Indicate failure
-    } finally {
-      setIsTyping(false);
-    }
-  };
 
   const renderFileListItem = (file: File, index: number) => {
     return (
@@ -297,7 +241,6 @@ export const CreateFile: FC<CreateFileProps> = ({
           </>
         )}
         onSuccess={handleSuccess}
-        createFunction={customCreateHandler}
       />
       <Dialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
         <DialogContent>
