@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { FC, useContext, useState } from "react"
+import React, { FC, useContext, useState, useRef, useEffect } from "react"
 import { ACCEPTED_FILE_TYPES } from "@/components/chat/chat-hooks/use-select-file-handler"
 import { SidebarCreateItem } from "@/components/sidebar/items/all/sidebar-create-item"
 import { Input } from "@/components/ui/input"
@@ -25,8 +25,11 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [currentFileIndex, setCurrentFileIndex] = useState(0)
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false)
-  const [pendingAction, setPendingAction] = useState<null | (() => void)>(null)
   const [duplicateFile, setDuplicateFile] = useState<any>(null)
+  const [queueActive, setQueueActive] = useState(false)
+  const pendingCreateState = useRef<any>(null)
+  const pendingWorkspaceId = useRef<string | null>(null)
+  const skipNext = useRef(false)
 
   const handleSelectedFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return
@@ -41,27 +44,44 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
   // Prepare the current file for upload
   const currentFile = selectedFiles[currentFileIndex] || null
 
-  // Duplicate check and upload logic
-  const handleBeforeUpload = async () => {
+  // Start the queue when files are selected
+  useEffect(() => {
+    if (selectedFiles.length > 0 && !queueActive) {
+      setQueueActive(true)
+      setCurrentFileIndex(0)
+    }
+  }, [selectedFiles])
+
+  // When queueActive or currentFileIndex changes, process the next file
+  useEffect(() => {
+    if (queueActive && currentFile) {
+      processCurrentFile()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueActive, currentFileIndex])
+
+  // Main file processing logic
+  const processCurrentFile = async () => {
     if (!currentFile || !selectedWorkspace) return
+    // Check for duplicate
     const existing = await getFileByNameInWorkspace(currentFile.name, selectedWorkspace.id)
     if (existing) {
       setDuplicateFile(existing)
       setShowDuplicateDialog(true)
-      return false
+      return
     }
-    return true
+    // No duplicate, trigger upload
+    triggerUpload()
   }
 
   // Called by SidebarCreateItem onSuccess
   const handleSuccess = async () => {
     if (currentFileIndex < selectedFiles.length - 1) {
-      setCurrentFileIndex(currentFileIndex + 1)
-      const nextFile = selectedFiles[currentFileIndex + 1]
-      setName(nextFile.name.split(".").slice(0, -1).join("."))
+      setCurrentFileIndex(idx => idx + 1)
     } else {
       setSelectedFiles([])
       setCurrentFileIndex(0)
+      setQueueActive(false)
     }
   }
 
@@ -71,25 +91,43 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
     if (duplicateFile) {
       await deleteFile((duplicateFile as { id: string }).id)
     }
-    setTimeout(() => {
-      if (pendingAction) pendingAction()
-    }, 0)
+    setDuplicateFile(null)
+    triggerUpload()
   }
 
   // Skip handler
   const handleSkip = () => {
     setShowDuplicateDialog(false)
+    setDuplicateFile(null)
     handleSuccess()
+  }
+
+  // Actually trigger the upload for SidebarCreateItem
+  const triggerUpload = () => {
+    // This will cause SidebarCreateItem to call its createFunction
+    setIsTyping(false)
+    pendingCreateState.current = {
+      file: currentFile,
+      user_id: profile.user_id,
+      name: currentFile.name.split(".").slice(0, -1).join("."),
+      description,
+      file_path: "",
+      size: currentFile.size || 0,
+      tokens: 0,
+      type: currentFile.type || 0
+    }
+    pendingWorkspaceId.current = selectedWorkspace.id
+    setTimeout(() => setIsTyping(true), 0) // force rerender
   }
 
   // Custom create handler for SidebarCreateItem
   const customCreateHandler = async (createState: any, workspaceId: string): Promise<any> => {
-    // Check for duplicate before upload
-    const proceed = await handleBeforeUpload()
-    if (!proceed) {
-      setPendingAction(() => () => customCreateHandler(createState, workspaceId))
-      return null // Pause upload until user decides
-    }
+    // Only upload if triggered by triggerUpload
+    if (!pendingCreateState.current || !pendingWorkspaceId.current) return null
+    const state = pendingCreateState.current
+    const wsId = pendingWorkspaceId.current
+    pendingCreateState.current = null
+    pendingWorkspaceId.current = null
     // ...existing file upload logic...
     return undefined // Let SidebarCreateItem handle the rest
   }
@@ -101,18 +139,16 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
     <>
       <SidebarCreateItem
         contentType="files"
-        createState={
-          {
-            file: currentFile,
-            user_id: profile.user_id,
-            name,
-            description,
-            file_path: "",
-            size: currentFile?.size || 0,
-            tokens: 0,
-            type: currentFile?.type || 0
-          } as TablesInsert<"files">
-        }
+        createState={pendingCreateState.current || {
+          file: currentFile,
+          user_id: profile.user_id,
+          name,
+          description,
+          file_path: "",
+          size: currentFile?.size || 0,
+          tokens: 0,
+          type: currentFile?.type || 0
+        } as TablesInsert<"files">}
         isOpen={isOpen}
         isTyping={isTyping}
         onOpenChange={isOpen => {
@@ -120,6 +156,7 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
           if (!isOpen) {
             setSelectedFiles([])
             setCurrentFileIndex(0)
+            setQueueActive(false)
           }
         }}
         renderInputs={() => (
