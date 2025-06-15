@@ -18,19 +18,21 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
   const [name, setName] = useState("")
   const [isTyping, setIsTyping] = useState(false)
   const [description, setDescription] = useState("")
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [currentFileIndex, setCurrentFileIndex] = useState(0)
 
   const handleSelectedFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return
-
-    const file = e.target.files[0]
-
-    if (!file) return
-
-    setSelectedFile(file)
-    const fileNameWithoutExtension = file.name.split(".").slice(0, -1).join(".")
-    setName(fileNameWithoutExtension)
+    const files = Array.from(e.target.files)
+    setSelectedFiles(files)
+    if (files.length > 0) {
+      const fileNameWithoutExtension = files[0].name.split(".").slice(0, -1).join(".")
+      setName(fileNameWithoutExtension)
+    }
   }
+
+  // Prepare the current file for upload
+  const currentFile = selectedFiles[currentFileIndex] || null
 
   if (!profile) return null
   if (!selectedWorkspace) return null
@@ -40,34 +42,52 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
       contentType="files"
       createState={
         {
-          file: selectedFile,
+          file: currentFile,
           user_id: profile.user_id,
           name,
           description,
           file_path: "",
-          size: selectedFile?.size || 0,
+          size: currentFile?.size || 0,
           tokens: 0,
-          type: selectedFile?.type || 0
+          type: currentFile?.type || 0
         } as TablesInsert<"files">
       }
       isOpen={isOpen}
       isTyping={isTyping}
-      onOpenChange={onOpenChange}
+      onOpenChange={isOpen => {
+        onOpenChange(isOpen)
+        if (!isOpen) {
+          setSelectedFiles([])
+          setCurrentFileIndex(0)
+        }
+      }}
       renderInputs={() => (
         <>
           <div className="space-y-1">
-            <Label>File</Label>
-
+            <Label>Files</Label>
             <Input
               type="file"
+              multiple
               onChange={handleSelectedFile}
               accept={ACCEPTED_FILE_TYPES}
             />
+            {selectedFiles.length > 1 && (
+              <div className="text-xs mt-2">
+                <b>Files to upload:</b>
+                <ul>
+                  {selectedFiles.map((file, idx) => (
+                    <li key={file.name + idx} style={{ fontWeight: idx === currentFileIndex ? 'bold' : 'normal' }}>
+                      {file.name}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-1">Uploading file {currentFileIndex + 1} of {selectedFiles.length}</div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1">
             <Label>Name</Label>
-
             <Input
               placeholder="File name..."
               value={name}
@@ -78,16 +98,26 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
 
           <div className="space-y-1">
             <Label>Description</Label>
-
             <Input
               placeholder="File description..."
-              value={name}
+              value={description}
               onChange={e => setDescription(e.target.value)}
               maxLength={FILE_DESCRIPTION_MAX}
             />
           </div>
         </>
       )}
+      // After a file is uploaded, move to the next file in the queue
+      onSuccess={() => {
+        if (currentFileIndex < selectedFiles.length - 1) {
+          setCurrentFileIndex(currentFileIndex + 1)
+          const nextFile = selectedFiles[currentFileIndex + 1]
+          setName(nextFile.name.split(".").slice(0, -1).join("."))
+        } else {
+          setSelectedFiles([])
+          setCurrentFileIndex(0)
+        }
+      }}
     />
   )
 }
