@@ -31,16 +31,6 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
   const pendingWorkspaceId = useRef<string | null>(null)
   const skipNext = useRef(false)
 
-  const handleSelectedFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return
-    const files = Array.from(e.target.files)
-    setSelectedFiles(files)
-    if (files.length > 0) {
-      const fileNameWithoutExtension = files[0].name.split(".").slice(0, -1).join(".")
-      setName(fileNameWithoutExtension)
-    }
-  }
-
   // Prepare the current file for upload
   const currentFile = selectedFiles[currentFileIndex] || null
 
@@ -50,21 +40,40 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
       setQueueActive(true)
       setCurrentFileIndex(0)
     }
-  }, [selectedFiles])
+  }, [selectedFiles, queueActive]) // Added queueActive to dependencies as good practice
 
   // When queueActive or currentFileIndex changes, process the next file
   useEffect(() => {
+    console.log("Queue/Index Effect: queueActive=", queueActive, "currentFile=", currentFile); // DEBUG LINE 1
     if (queueActive && currentFile) {
+      console.log("Calling processCurrentFile for:", currentFile.name); // DEBUG LINE 2
       processCurrentFile()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queueActive, currentFileIndex])
+  }, [queueActive, currentFile]) // Changed dependency from currentFileIndex to currentFile for more directness
+
+  const handleSelectedFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : []
+    console.log("Files selected:", files); // DEBUG LINE 3
+    if (files.length > 0) {
+      setSelectedFiles(files)
+      setName(files[0].name.split(".").slice(0, -1).join("."))
+      setDescription("")
+    } else {
+      setSelectedFiles([])
+    }
+  }
 
   // Main file processing logic
   const processCurrentFile = async () => {
-    if (!currentFile || !selectedWorkspace) return
+    console.log("Inside processCurrentFile for:", currentFile?.name); // DEBUG LINE 4
+    if (!currentFile || !selectedWorkspace) {
+      console.log("processCurrentFile: currentFile or selectedWorkspace is missing"); // DEBUG LINE 5
+      return
+    }
     // Check for duplicate
     const existing = await getFileByNameInWorkspace(currentFile.name, selectedWorkspace.id)
+    console.log("Result of getFileByNameInWorkspace:", existing)
     if (existing) {
       setDuplicateFile(existing)
       setShowDuplicateDialog(true)
