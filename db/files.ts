@@ -306,6 +306,18 @@ export const processFileUploadOperation = async (
       // --- End name sanitization ---
 
       if (op.action === "upload") {
+        // --- Backend duplicate check ---
+        const duplicateCheck = await supabase
+          .from("files")
+          .select("id")
+          .eq("user_id", authenticatedUserId)
+          .eq("name", validFilename)
+          .maybeSingle();
+        if (duplicateCheck.data && duplicateCheck.data.id) {
+          toast.error(`A file named '${validFilename}' already exists. Please rename or overwrite.`);
+          throw new Error(`Duplicate file name: '${validFilename}'`);
+        }
+        // --- End backend duplicate check ---
         const fileRecord: TablesInsert<"files"> = {
           user_id: authenticatedUserId, // Always use authenticated user
           name: validFilename,
