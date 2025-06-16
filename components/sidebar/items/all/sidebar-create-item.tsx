@@ -186,7 +186,7 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
         const successfulUploads = fileCreationResults.filter(Boolean); // Filter out any potential null/undefined from errors not throwing
 
         if (successfulUploads.length > 0) {
-            setStateFunction((prevItems: DBFile[]) => {
+            setStateFunction((prevItems) => { // Removed DBFile[] type annotation from prevItems
                 const updatedItems = [...prevItems];
                 successfulUploads.forEach((newItem) => {
                     const existingIndex = updatedItems.findIndex(item => item.id === newItem.id);
