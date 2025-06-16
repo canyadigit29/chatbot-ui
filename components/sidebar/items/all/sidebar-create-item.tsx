@@ -186,17 +186,20 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
         const successfulUploads = fileCreationResults.filter(Boolean); // Filter out any potential null/undefined from errors not throwing
 
         if (successfulUploads.length > 0) {
-            setStateFunction((prevItems) => { // Removed DBFile[] type annotation from prevItems
+            // Assert the type of setStateFunction for the "files" case
+            const specificSetFiles = setStateFunction as React.Dispatch<React.SetStateAction<Tables<"files">[]>>;
+            
+            specificSetFiles((prevItems) => { // prevItems will be inferred as Tables<"files">[]
                 const updatedItems = [...prevItems];
-                successfulUploads.forEach((newItem) => {
+                successfulUploads.forEach((newItem) => { // newItem is DBFile (i.e., Tables<"files">)
                     const existingIndex = updatedItems.findIndex(item => item.id === newItem.id);
                     if (existingIndex > -1) {
-                        updatedItems[existingIndex] = newItem; // Update existing
+                        updatedItems[existingIndex] = newItem; 
                     } else {
-                        updatedItems.push(newItem); // Add new
+                        updatedItems.push(newItem); 
                     }
                 });
-                return updatedItems;
+                return updatedItems; // Returns Tables<"files">[]
             });
         }
         
