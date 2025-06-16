@@ -270,19 +270,38 @@ export const processFileUploadOperation = async (
     try {
       if (op.action === "skip") {
         console.log(`Skipping file: ${op.name}`);
-        // Optionally, you could toast.info or some other feedback for skipped files
         continue;
       }
+
+      // --- Name sanitization and fallback logic ---
+      let name = op.name;
+      if (!name || name.trim() === "") {
+        // Use filename without extension as fallback
+        const fileNameWithoutExtension = op.file.name.split(".").slice(0, -1).join(".");
+        name = fileNameWithoutExtension || "untitled";
+      }
+      // Sanitize name: only allow a-z, 0-9, .
+      let validFilename = name.replace(/[^a-z0-9.]/gi, "_").toLowerCase();
+      const extension = op.file.name.split(".").pop();
+      const extensionIndex = validFilename.lastIndexOf(".");
+      const baseName = validFilename.substring(0, (extensionIndex < 0) ? undefined : extensionIndex);
+      const maxBaseNameLength = 100 - (extension?.length || 0) - 1;
+      if (baseName.length > maxBaseNameLength) {
+        validFilename = baseName.substring(0, maxBaseNameLength) + "." + extension;
+      } else {
+        validFilename = baseName + (extension ? "." + extension : "");
+      }
+      // --- End name sanitization ---
 
       if (op.action === "upload") {
         const fileRecord: TablesInsert<"files"> = {
           user_id: op.userId,
-          name: op.name,
-          description: op.description === null ? "" : op.description, // Handle null with empty string
+          name: validFilename,
+          description: op.description === null ? "" : op.description,
           type: op.file.type,
           size: op.file.size,
-          file_path: "", // Initialize as empty, will be updated by createFile/createDocXFile
-          tokens: 0 // Initialize as 0, will be updated after embedding
+          file_path: "",
+          tokens: 0
         };
 
         let newFile;
@@ -291,7 +310,7 @@ export const processFileUploadOperation = async (
           const arrayBuffer = await op.file.arrayBuffer();
           const result = await mammoth.extractRawText({ arrayBuffer });
           newFile = await createDocXFile(
-            result.value, // This text is currently unused in createDocXFile
+            result.value,
             op.file,
             fileRecord,
             op.workspaceId
@@ -305,45 +324,37 @@ export const processFileUploadOperation = async (
         }
         processedFiles.push(newFile);
         toast.success(`File "${newFile.name}" uploaded successfully.`);
-
       } else if (op.action === "overwrite") {
         if (!op.existingFileId) {
           toast.error(`Error overwriting "${op.name}": Missing existing file ID.`);
           throw new Error("existingFileId is required for overwrite action.");
         }
-
         const updatePayload: TablesUpdate<"files"> = {
-          name: op.name,
-          description: op.description === null ? undefined : op.description, // For update, undefined might be acceptable to not change if null
+          name: validFilename,
+          description: op.description === null ? undefined : op.description,
           size: op.file.size,
           type: op.file.type
         };
-        
         // Update metadata first
         let updatedFileMeta = await updateFile(op.existingFileId, updatePayload);
-
         // Re-upload the file to storage.
         // uploadFile uses user_id and file_id for the path and has upsert:true.
         const newFilePath = await uploadFile(op.file, {
           user_id: updatedFileMeta.user_id,
           file_id: op.existingFileId,
         });
-
         // Ensure file_path in DB is correct.
         // It should be consistent if derived from file_id, but this ensures it.
         if (updatedFileMeta.file_path !== newFilePath) {
           updatedFileMeta = await updateFile(op.existingFileId, { file_path: newFilePath });
         }
-        
         processedFiles.push(updatedFileMeta);
         toast.success(`File "${updatedFileMeta.name}" overwritten successfully.`);
       }
     } catch (error: any) {
       console.error(`Failed to process file "${op.name}":`, error);
       toast.error(`Failed to process file "${op.name}": ${error.message || "Unknown error"}`);
-      // Continue to the next file operation
     }
   }
-
   return processedFiles;
 };
