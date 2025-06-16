@@ -123,10 +123,11 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
       
       setSelectedFilesData((prev: SelectedFileData[]) =>
         prev.map((item: SelectedFileData) => {
-          const currentFullFilename = item.name + "." + item.file.name.split(".").pop()
+          const extension = item.file.name.split(".").pop() || "";
+          const sanitized = sanitizeFilename(item.name, extension);
           if (filesToCheck.find((f: SelectedFileData) => f.id === item.id)) {
             // Only update files that were part of this check batch
-            const isDuplicate = existingFilenames.includes(currentFullFilename)
+            const isDuplicate = existingFilenames.includes(sanitized);
             return {
               ...item,
               status: isDuplicate ? "duplicate" : "unique",
@@ -442,4 +443,18 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
       </Sheet>
     </>
   )
+}
+
+// Helper to sanitize filenames the same way as the backend
+function sanitizeFilename(name: string, extension: string) {
+  let validFilename = name.replace(/[^a-z0-9.]/gi, "_").toLowerCase();
+  const extensionIndex = validFilename.lastIndexOf(".");
+  const baseName = validFilename.substring(0, (extensionIndex < 0) ? undefined : extensionIndex);
+  const maxBaseNameLength = 100 - (extension?.length || 0) - 1;
+  if (baseName.length > maxBaseNameLength) {
+    validFilename = baseName.substring(0, maxBaseNameLength) + "." + extension;
+  } else {
+    validFilename = baseName + (extension ? "." + extension : "");
+  }
+  return validFilename;
 }
