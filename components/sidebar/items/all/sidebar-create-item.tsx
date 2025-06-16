@@ -72,7 +72,8 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
     presets: createPreset,
     prompts: createPrompt,
     files: async (
-      fileOpsParams: FileUploadOperationParams[]
+      fileOpsParams: FileUploadOperationParams[],
+      onBackendDuplicate?: (fileId: string, fileName: string) => void
     ): Promise<DBFile[]> => {
       if (!selectedWorkspace) throw new Error("No workspace selected");
       if (!processFileUploadOperation) {
@@ -85,13 +86,11 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
       } catch (error: any) {
         // Detect backend duplicate error and trigger modal
         if (error.message && error.message.startsWith("Duplicate file name:")) {
-          // Find the file in fileOpsParams that caused the error
           const match = /Duplicate file name: '(.+)'/.exec(error.message);
           const duplicateName = match ? match[1] : "";
-          const duplicateFile = fileOpsParams.find(f => (f.name + (f.file?.name ? "." + f.file.name.split(".").pop() : "")) === duplicateName || f.name === duplicateName);
+          const duplicateFile = fileOpsParams.find(f => f.name === duplicateName);
           if (onBackendDuplicate && duplicateFile) {
-            const duplicateIndex = fileOpsParams.indexOf(duplicateFile);
-            onBackendDuplicate(duplicateIndex.toString(), duplicateName);
+            onBackendDuplicate(duplicateFile.id, duplicateName);
           }
         }
         throw error;
@@ -195,7 +194,7 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
 
       if (contentType === "files") {
         // createState for files is FileUploadOperationParams[]
-        const fileCreationResults = await (createFunction as (params: FileUploadOperationParams[]) => Promise<DBFile[]>)(createState);
+        const fileCreationResults = await (createFunction as (params: FileUploadOperationParams[], onBackendDuplicate?: (fileId: string, fileName: string) => void) => Promise<DBFile[]>)(createState, onBackendDuplicate);
 
         const successfulUploads = fileCreationResults.filter(Boolean); // Filter out any potential null/undefined from errors not throwing
 
