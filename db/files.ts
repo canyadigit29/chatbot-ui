@@ -250,6 +250,7 @@ export const deleteFileWorkspace = async (
 // New Type Definitions and Function
 
 export interface FileUploadOperationParams {
+  id: string; // Ensure every operation has a unique id
   file: File;
   name: string;
   description: string | null;
