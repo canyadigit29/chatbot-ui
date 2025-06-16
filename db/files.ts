@@ -74,6 +74,14 @@ export const createFile = async (
   } else {
     fileRecord.name = baseName + "." + extension
   }
+
+  // Diagnostic log: Check Supabase auth state before insert
+  const session = supabase.auth.getSession()
+  const currentUser = supabase.auth.getUser()
+  console.log("createFile: About to insert. Client session:", session);
+  console.log("createFile: About to insert. Client user:", currentUser);
+  console.log("createFile: About to insert. FileRecord user_id:", fileRecord.user_id);
+
   const { data: createdFile, error } = await supabase
     .from("files")
     .insert([fileRecord])
