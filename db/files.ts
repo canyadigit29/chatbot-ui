@@ -3,11 +3,21 @@ import { TablesInsert, TablesUpdate, Tables } from "@/supabase/types" // Added T
 import mammoth from "mammoth"
 import { toast } from "sonner"
 import { uploadFile } from "./storage/files"
-import { 추출 } from "@tanstack/react-query" // This seems like an unrelated import, might be a copy-paste artifact. Keeping for now.
 import {
   SelectedFileData,
   FileActionType
 } from "@/components/sidebar/items/files/create-file" // Import types
+
+export type DBFile = Tables<"files">; // Moved DBFile type definition up for clarity
+
+// Define FileOperationResult based on usage
+export interface FileOperationResult {
+  file: DBFile | null;
+  action: FileActionType | "skip"; // "skip" is a possible action
+  success: boolean;
+  message: string | null;
+  originalName?: string; // For skip action, to identify which file
+}
 
 export const getFileById = async (fileId: string) => {
   const { data: file, error } = await supabase
@@ -252,226 +262,139 @@ export const deleteFileWorkspace = async (
   return true
 }
 
-// New Type Definitions and Function
-
-export interface FileUploadOperationParams {
-  file: File;
-  name: string;
-  description: string | null;
-  action: "upload" | "overwrite" | "skip";
-  workspaceId: string;
-  userId: string;
-  existingFileId?: string; // Required for "overwrite"
-}
-
-export type DBFile = Tables<"files">;
-
-export const processFileUploadOperation = async (
-  operations: FileUploadOperationParams[]
-): Promise<DBFile[]> => {
-  const processedFiles: DBFile[] = [];
-
-  for (const op of operations) {
-    try {
-      if (op.action === "skip") {
-        console.log(`Skipping file: ${op.name}`);
-        // Optionally, you could toast.info or some other feedback for skipped files
-        continue;
-      }
-
-      if (op.action === "upload") {
-        const fileRecord: TablesInsert<"files"> = {
-          user_id: op.userId,
-          name: op.name,
-          description: op.description === null ? "" : op.description, // Handle null with empty string
-          type: op.file.type,
-          size: op.file.size,
-          file_path: "", // Initialize as empty, will be updated by createFile/createDocXFile
-          tokens: 0 // Initialize as 0, will be updated after embedding
-        };
-
-        let newFile;
-        const fileExtension = op.file.name.split(".").pop()?.toLowerCase();
-        if (fileExtension === "docx") {
-          const arrayBuffer = await op.file.arrayBuffer();
-          const result = await mammoth.extractRawText({ arrayBuffer });
-          newFile = await createDocXFile(
-            result.value, // This text is currently unused in createDocXFile
-            op.file,
-            fileRecord,
-            op.workspaceId
-          );
-        } else {
-          newFile = await createFile(
-            op.file,
-            fileRecord,
-            op.workspaceId
-          );
-        }
-        processedFiles.push(newFile);
-        toast.success(`File "${newFile.name}" uploaded successfully.`);
-
-      } else if (op.action === "overwrite") {
-        if (!op.existingFileId) {
-          toast.error(`Error overwriting "${op.name}": Missing existing file ID.`);
-          throw new Error("existingFileId is required for overwrite action.");
-        }
-
-        const updatePayload: TablesUpdate<"files"> = {
-          name: op.name,
-          description: op.description === null ? undefined : op.description, // For update, undefined might be acceptable to not change if null
-          size: op.file.size,
-          type: op.file.type
-        };
-        
-        // Update metadata first
-        let updatedFileMeta = await updateFile(op.existingFileId, updatePayload);
-
-        // Re-upload the file to storage.
-        // uploadFile uses user_id and file_id for the path and has upsert:true.
-        const newFilePath = await uploadFile(op.file, {
-          user_id: updatedFileMeta.user_id,
-          file_id: op.existingFileId,
-        });
-
-        // Ensure file_path in DB is correct.
-        // It should be consistent if derived from file_id, but this ensures it.
-        if (updatedFileMeta.file_path !== newFilePath) {
-          updatedFileMeta = await updateFile(op.existingFileId, { file_path: newFilePath });
-        }
-        
-        processedFiles.push(updatedFileMeta);
-        toast.success(`File "${updatedFileMeta.name}" overwritten successfully.`);
-      }
-    } catch (error: any) {
-      console.error(`Failed to process file "${op.name}":`, error);
-      toast.error(`Failed to process file "${op.name}": ${error.message || "Unknown error"}`);
-      // Continue to the next file operation
-    }
-  }
-
-  return processedFiles;
-};
-
+// Modify processFileUploadOperation to use module-scoped supabase client
 export async function processFileUploadOperation(
-  profile: Tables<"profiles">, // Profile object which includes user_id
+  profile: Tables<"profiles">,
   workspaceId: string,
-  filesToProcess: SelectedFileData[], // Use SelectedFileData[]
-  fileOperation: FileActionType, // Use FileActionType
-  source: "chat" | "chunks"
-) {
+  filesToProcess: SelectedFileData[],
+  fileOperation: FileActionType, // This is the batch operation (upload, overwrite, skip from UI)
+  source: "chat" | "chunks" // Keep source if used, otherwise can be removed
+): Promise<FileOperationResult[]> {
   console.log(
-    "processFileUploadOperation: Received profile:",
-    JSON.stringify(profile, null, 2)
-  )
-  console.log(
-    "processFileUploadOperation: Received profile.user_id:", // Log the critical part
+    "processFileUploadOperation: Received profile.user_id:",
     profile.user_id
   );
   console.log(
     "processFileUploadOperation: Received workspaceId:",
     workspaceId
-  )
-  console.log(
-    "processFileUploadOperation: Received filesToProcess:",
-    JSON.stringify(filesToProcess, null, 2)
   );
-  console.log("processFileUploadOperation: Received fileOperation:", fileOperation);
+  console.log(
+    "processFileUploadOperation: Received filesToProcess count:",
+    filesToProcess.length
+  );
+  console.log("processFileUploadOperation: Received batch fileOperation:", fileOperation);
 
   const operationResults: FileOperationResult[] = [];
 
   for (const selectedFile of filesToProcess) {
-    const { file, name: originalName, description } = selectedFile
-    let resolvedName = originalName
-    let operation = fileOperation
-
-    // If the individual file has a specific action due to conflict resolution, it might override the batch operation.
-    // This part depends on how `selectedFile.action` is managed and if it should take precedence.
-    // For now, assuming `fileOperation` is the determined action for this item if part of a batch.
-    if (selectedFile.action && selectedFile.action !== "rename_initiate" && selectedFile.action !== "upload") {
-        operation = selectedFile.action;
-    }
+    const { file, name: currentName, description, originalFilename, action: individualAction } = selectedFile;
+    let resolvedName = currentName; // Name, possibly updated by user during rename flow
     
-    if (operation === "skip") {
+    // Determine the actual operation for this specific file.
+    // It could be the batch operation, or an individual action from conflict resolution.
+    let currentFileAction = individualAction || fileOperation;
+    if (individualAction === "rename_initiate") { // If rename was chosen
+        resolvedName = selectedFile.name; // Use the new name provided by user
+        currentFileAction = "upload"; // After rename, it's an upload
+        console.log(`File ${originalFilename} will be uploaded as ${resolvedName} after rename.`);
+    } else if (individualAction === "upload" && fileOperation === "overwrite") {
+        // If user chose to "Upload as new" for a duplicate during a batch "overwrite"
+        currentFileAction = "upload";
+    }
+
+
+    if (currentFileAction === "skip") {
+      console.log(`Skipping file ${originalFilename} as per operation.`);
       operationResults.push({
-        fileRecord: null,
-        success: true,
-        error: null,
+        file: null,
         action: "skip",
-        originalName: selectedFile.originalFilename
-      })
-      console.log(`Skipping file ${selectedFile.originalFilename} as per operation.`);
-      continue
+        success: true,
+        message: `File "${originalFilename}" was skipped.`,
+        originalName: originalFilename
+      });
+      continue;
     }
-
-    if (selectedFile.action === "rename_initiate") {
-        // The 'name' field in SelectedFileData should be the new, user-confirmed unique name
-        resolvedName = selectedFile.name;
-        operation = "upload"; // After renaming, it's an upload operation
-        console.log(`File ${selectedFile.originalFilename} will be uploaded as ${resolvedName} after rename.`);
-    }
-
-
-    const filePath = await uploadFile(file, {
-      user_id: profile.user_id, // Use user_id from profile
-      workspace_id: workspaceId, // workspace_id is not part of FileItemChunk interface, but used for path
-      name: resolvedName, // Use the resolved name (original or new)
-      type: file.type
-    })
-
-    // Prepare file record for Supabase
-    const fileRecord: TablesInsert<"files"> = {
-      user_id: profile.user_id, // Ensure this is being set from the passed profile
-      description: description || "",
-      file_path: filePath,
-      name: resolvedName,
-      type: file.type,
-      size: file.size,
-      tokens: 0, // Initialize as 0, will be updated after embedding
-    };
 
     try {
-      if (operation === "upload") {
-        // Insert new file record into Supabase
-        const newFile = await insertFileRecordIntoSupabase(supabase, profile, fileRecord);
+      if (currentFileAction === "upload") {
+        const fileRecordInsert: TablesInsert<"files"> = {
+          user_id: profile.user_id,
+          description: description || "",
+          name: resolvedName,
+          type: file.type,
+          size: file.size,
+          tokens: 0, // Initialize, will be updated later if needed
+          file_path: "" // Initialize, will be set after upload
+        };
+
+        // 1. Insert initial record to get an ID
+        console.log("Attempting to insert initial file record for:", resolvedName, "User ID:", profile.user_id);
+        const initialFile = await insertFileRecordIntoSupabase(profile, fileRecordInsert); // Pass profile
+        console.log("Initial file record inserted:", initialFile.id, "for", initialFile.name);
+        
+        // 2. Upload file to storage using the new file ID
+        const filePath = await uploadFile(file, {
+          user_id: initialFile.user_id, // Use user_id from the confirmed inserted record
+          file_id: initialFile.id
+        });
+        console.log("File uploaded to storage path:", filePath);
+
+        // 3. Update file record with the actual file_path
+        const finalFile = await updateFile(initialFile.id, {
+          file_path: filePath
+        });
+        console.log("File record updated with path:", finalFile.id);
+        
+        // TODO: Create file_workspaces entry
+        await createFileWorkspace({
+            user_id: finalFile.user_id,
+            file_id: finalFile.id,
+            workspace_id: workspaceId
+        });
+        console.log("File_workspace entry created for file:", finalFile.id, "workspace:", workspaceId);
+
+
         operationResults.push({
-          file: newFile,
+          file: finalFile,
           action: "upload",
           success: true,
-          message: `File "${newFile.name}" uploaded successfully.`,
+          message: `File "${finalFile.name}" uploaded successfully.`,
         });
-      } else if (operation === "overwrite") {
-        // For overwrite, we need the existing file ID
-        if (!selectedFile.id) {
+        toast.success(`File "${finalFile.name}" uploaded.`);
+
+      } else if (currentFileAction === "overwrite") {
+        if (!selectedFile.id) { // existingFileId should be on selectedFile if it's a confirmed duplicate
+          toast.error(`Error overwriting "${resolvedName}": Missing existing file ID.`);
           throw new Error("Existing file ID not found for overwrite action.");
         }
+        const existingFileId = selectedFile.id;
 
-        // Update file record in Supabase
-        const { data: updatedFile, error: updateError } = await supabase
-          .from("files")
-          .update(fileRecord)
-          .eq("id", selectedFile.id)
-          .select("*")
-          .single();
+        const fileRecordUpdate: TablesUpdate<"files"> = {
+          // user_id is not updated, it's fixed for the file
+          description: description || "",
+          name: resolvedName, // Name might have been changed by user even for overwrite
+          type: file.type,
+          size: file.size,
+          // tokens might need re-calculation, file_path will be updated
+        };
 
-        if (updateError) {
-          throw new Error(updateError.message);
-        }
-
-        // Upload the new file version
+        // 1. Update metadata (name, description, size, type)
+        // Note: uploadFile will replace the actual file in storage.
+        // We use the existingFileId to ensure we're overwriting the correct storage object.
+        console.log("Attempting to upload new version for file ID:", existingFileId);
         const newFilePath = await uploadFile(file, {
-          user_id: profile.user_id,
-          file_id: selectedFile.id, // Use the existing file ID
-          upsert: true,
+          user_id: profile.user_id, // RLS check for storage write if policies apply there
+          file_id: existingFileId, 
+          // upsert: true, // uploadFile should handle this, or its type needs to allow it. Assuming it does.
         });
+        console.log("File overwritten in storage, new path (should be same if ID-based):", newFilePath);
 
-        // Update file path if it has changed
-        if (newFilePath !== updatedFile.file_path) {
-          await supabase
-            .from("files")
-            .update({ file_path: newFilePath })
-            .eq("id", selectedFile.id);
-        }
+        // 2. Update DB record with new metadata and potentially new path (if it changed, though unlikely if ID-based)
+        const updatedFile = await updateFile(existingFileId, {
+            ...fileRecordUpdate,
+            file_path: newFilePath // Ensure path is updated
+        });
+        console.log("File record updated for overwrite:", updatedFile.id);
 
         operationResults.push({
           file: updatedFile,
@@ -479,46 +402,57 @@ export async function processFileUploadOperation(
           success: true,
           message: `File "${updatedFile.name}" overwritten successfully.`,
         });
+        toast.success(`File "${updatedFile.name}" overwritten.`);
       }
     } catch (error: any) {
-      console.error("Error processing file:", error);
+      console.error("Error processing file:", originalFilename, error);
+      toast.error(`Failed to process "${originalFilename}": ${error.message}`);
       operationResults.push({
-        file: file.file,
-        action: fileOperation.action,
+        file: null, // Or some representation of the failed file
+        action: currentFileAction,
         success: false,
-        message: error.message || "Unknown error",
+        message: `Failed for "${originalFilename}": ${error.message || "Unknown error"}`,
+        originalName: originalFilename
       });
     }
   }
-
   return operationResults;
 }
 
+// Modify insertFileRecordIntoSupabase to use module-scoped supabase client
 async function insertFileRecordIntoSupabase(
-  supabase: SupabaseClient,
-  profile: Tables<"profiles">, // Pass full profile
+  profile: Tables<"profiles">, // Keep profile for logging or if needed by RLS directly in function
   fileRecord: TablesInsert<"files">
-): Promise<DBFile> {
+): Promise<DBFile> { // Ensure it returns DBFile (Tables<"files">)
   console.log(
-    "insertFileRecordIntoSupabase: About to insert. Profile user_id:",
-    profile?.user_id, 
-    "FileRecord user_id:",
+    "insertFileRecordIntoSupabase: About to insert. Profile user_id for record:",
+    profile.user_id, 
+    "FileRecord user_id being set:",
     fileRecord.user_id 
-  )
+  );
+  if (profile.user_id !== fileRecord.user_id) {
+    console.warn("Mismatch between profile.user_id and fileRecord.user_id in insertFileRecordIntoSupabase!");
+    // Potentially throw an error or align them, but fileRecord.user_id should be authoritative if set from profile earlier.
+  }
   console.log(
     "insertFileRecordIntoSupabase: Full fileRecord:",
     JSON.stringify(fileRecord, null, 2)
-  )
+  );
 
-  const { data, error } = await supabase
+  const { data: insertedFile, error } = await supabase // Use module-scoped supabase
     .from("files")
-    .insert([fileRecord])
+    .insert(fileRecord) // fileRecord should be a single object, not an array unless API changed
     .select("*")
-    .single()
+    .single();
 
   if (error) {
-    throw new Error(error.message)
+    console.error("insertFileRecordIntoSupabase error:", error);
+    throw new Error(`Supabase insert error: ${error.message}`);
   }
-
-  return data
+  if (!insertedFile) {
+    console.error("insertFileRecordIntoSupabase error: No data returned after insert.");
+    throw new Error("No data returned after file insert.");
+  }
+  console.log("insertFileRecordIntoSupabase: Inserted file:", insertedFile.id);
+  return insertedFile;
 }
