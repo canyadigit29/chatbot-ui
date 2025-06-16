@@ -10,8 +10,6 @@ import React, { FC, useContext, useState, useEffect, useCallback } from "react"
 import { IconTrash, IconAlertCircle, IconCircleCheck } from "@tabler/icons-react"
 import { toast } from "sonner"
 
-export type FileActionType = "upload" | "overwrite" | "skip" | "rename_initiate"; // Added export
-
 export interface SelectedFileData {
   id: string
   file: File
@@ -19,13 +17,8 @@ export interface SelectedFileData {
   originalFilename: string
   description: string
   status: "new" | "checking" | "unique" | "duplicate" | "renaming_checking"
-  action?: FileActionType // Using FileActionType here
+  action?: "upload" | "overwrite" | "skip" | "rename_initiate"
   apiError?: string
-}
-
-export interface FileUploadOperationParams { // Added export
-  displayFile: SelectedFileData;
-  fileOperation: FileActionType;
 }
 
 interface CreateFileProps {
