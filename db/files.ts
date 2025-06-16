@@ -275,6 +275,11 @@ export const processFileUploadOperation = async (
 
   for (const op of operations) {
     try {
+      // --- Workspace ID validation ---
+      if (!op.workspaceId) {
+        throw new Error(`Missing workspace_id for file '${op.name || op.file.name}'. File upload aborted.`);
+      }
+      // --- End workspace ID validation ---
       if (op.action === "skip") {
         console.log(`Skipping file: ${op.name}`);
         continue;
