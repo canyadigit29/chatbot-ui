@@ -90,7 +90,7 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
           const duplicateName = match ? match[1] : "";
           const duplicateFile = fileOpsParams.find(f => (f.name + (f.file?.name ? "." + f.file.name.split(".").pop() : "")) === duplicateName || f.name === duplicateName);
           if (onBackendDuplicate && duplicateFile) {
-            onBackendDuplicate(duplicateFile.file?.id || duplicateFile.name, duplicateName);
+            onBackendDuplicate(duplicateFile.id, duplicateName);
           }
         }
         throw error;
