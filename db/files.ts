@@ -314,31 +314,3 @@ export const deleteFileWorkspace = async (
 
   return true
 }
-
-export const getFileByNameInWorkspace = async (
-  name: string,
-  workspaceId: string
-) => {
-  // Step 1: Get all file IDs in the workspace
-  const { data: fileWorkspaces, error: fwError } = await supabase
-    .from("file_workspaces")
-    .select("file_id")
-    .eq("workspace_id", workspaceId)
-
-  if (fwError) throw new Error(fwError.message)
-  const fileIds = fileWorkspaces?.map((fw: { file_id: string }) => fw.file_id) || []
-  if (fileIds.length === 0) return null
-
-  // Step 2: Find a file with the same name among those IDs
-  const { data: file, error } = await supabase
-    .from("files")
-    .select("*")
-    .eq("name", name)
-    .in("id", fileIds)
-    .maybeSingle()
-
-  if (error) {
-    if (error.code !== "PGRST116") throw new Error(error.message)
-  }
-  return file
-}
