@@ -105,9 +105,6 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
         return []
       }
 
-      // Extract DisplayFile[] (which is SelectedFileData[]) and a single FileOperation for the batch.
-      // Assumes a single operation type for the batch, taken from the first item.
-      // This logic might need refinement if operations can differ within a batch.
       const displayFiles: SelectedFileData[] = fileOpsParams.map(
         op => op.displayFile
       )
@@ -122,14 +119,20 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
         operationForBatch
       )
 
-      const results = await processFileUploadOperation(
+      const operationResults = await processFileUploadOperation(
         profile, // Pass the whole profile object
         selectedWorkspace.id,
         displayFiles,
         operationForBatch,
         "chunks" // Source needs to be determined, using "chunks" as placeholder
       )
-      return results
+      
+      // Transform FileOperationResult[] to DBFile[]
+      const successfulFiles: DBFile[] = operationResults
+        .filter(result => result.success && result.file)
+        .map(result => result.file as DBFile); // Type assertion as we filtered for result.file existence
+
+      return successfulFiles; // Return only the successfully processed DBFile objects
     },
     collections: async (
       createState: {
