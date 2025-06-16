@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase/browser-client"
-import { TablesInsert, TablesUpdate } from "@/supabase/types"
+import { TablesInsert, TablesUpdate, Tables } from "@/supabase/types" // Added Tables
 import mammoth from "mammoth"
 import { toast } from "sonner"
 import { uploadFile } from "./storage/files"
@@ -58,38 +58,11 @@ export const getFileWorkspacesByFileId = async (fileId: string) => {
   return file
 }
 
-export const createFileBasedOnExtension = async (
-  file: File,
-  fileRecord: TablesInsert<"files">,
-  workspace_id: string,
-  embeddingsProvider: "openai" | "local"
-) => {
-  const fileExtension = file.name.split(".").pop()
-
-  if (fileExtension === "docx") {
-    const arrayBuffer = await file.arrayBuffer()
-    const result = await mammoth.extractRawText({
-      arrayBuffer
-    })
-
-    return createDocXFile(
-      result.value,
-      file,
-      fileRecord,
-      workspace_id,
-      embeddingsProvider
-    )
-  } else {
-    return createFile(file, fileRecord, workspace_id, embeddingsProvider)
-  }
-}
-
 // For non-docx files
 export const createFile = async (
   file: File,
   fileRecord: TablesInsert<"files">,
-  workspace_id: string,
-  embeddingsProvider: "openai" | "local"
+  workspace_id: string
 ) => {
   let validFilename = fileRecord.name.replace(/[^a-z0-9.]/gi, "_").toLowerCase()
   const extension = file.name.split(".").pop()
@@ -118,35 +91,13 @@ export const createFile = async (
   })
 
   const filePath = await uploadFile(file, {
-    name: createdFile.name,
     user_id: createdFile.user_id,
-    file_id: createdFile.name
+    file_id: createdFile.id // Use the actual file ID for the path
   })
 
   await updateFile(createdFile.id, {
     file_path: filePath
   })
-
-  const formData = new FormData()
-  formData.append("file_id", createdFile.id)
-  formData.append("embeddingsProvider", embeddingsProvider)
-
-  const response = await fetch("/api/retrieval/process", {
-    method: "POST",
-    body: formData
-  })
-
-  if (!response.ok) {
-    const jsonText = await response.text()
-    const json = JSON.parse(jsonText)
-    console.error(
-      `Error processing file:${createdFile.id}, status:${response.status}, response:${json.message}`
-    )
-    toast.error("Failed to process file. Reason:" + json.message, {
-      duration: 10000
-    })
-    await deleteFile(createdFile.id)
-  }
 
   const fetchedFile = await getFileById(createdFile.id)
 
@@ -158,8 +109,7 @@ export const createDocXFile = async (
   text: string,
   file: File,
   fileRecord: TablesInsert<"files">,
-  workspace_id: string,
-  embeddingsProvider: "openai" | "local"
+  workspace_id: string
 ) => {
   const { data: createdFile, error } = await supabase
     .from("files")
@@ -178,39 +128,13 @@ export const createDocXFile = async (
   })
 
   const filePath = await uploadFile(file, {
-    name: createdFile.name,
     user_id: createdFile.user_id,
-    file_id: createdFile.name
+    file_id: createdFile.id // Use the actual file ID for the path
   })
 
   await updateFile(createdFile.id, {
     file_path: filePath
   })
-
-  const response = await fetch("/api/retrieval/process/docx", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      text: text,
-      fileId: createdFile.id,
-      embeddingsProvider,
-      fileExtension: "docx"
-    })
-  })
-
-  if (!response.ok) {
-    const jsonText = await response.text()
-    const json = JSON.parse(jsonText)
-    console.error(
-      `Error processing file:${createdFile.id}, status:${response.status}, response:${json.message}`
-    )
-    toast.error("Failed to process file. Reason:" + json.message, {
-      duration: 10000
-    })
-    await deleteFile(createdFile.id)
-  }
 
   const fetchedFile = await getFileById(createdFile.id)
 
@@ -231,9 +155,9 @@ export const createFiles = async (
   }
 
   await createFileWorkspaces(
-    createdFiles.map(file => ({
-      user_id: file.user_id,
-      file_id: file.id,
+    createdFiles.map((file: TablesInsert<"files">) => ({
+      user_id: file.user_id!,
+      file_id: file.id!,
       workspace_id
     }))
   )
@@ -314,3 +238,104 @@ export const deleteFileWorkspace = async (
 
   return true
 }
+
+// New Type Definitions and Function
+
+export interface FileUploadOperationParams {
+  file: File;
+  name: string;
+  description: string | null;
+  action: "upload" | "overwrite" | "skip";
+  workspaceId: string;
+  userId: string;
+  existingFileId?: string; // Required for "overwrite"
+}
+
+export type DBFile = Tables<"files">;
+
+export const processFileUploadOperation = async (
+  operations: FileUploadOperationParams[]
+): Promise<DBFile[]> => {
+  const processedFiles: DBFile[] = [];
+
+  for (const op of operations) {
+    try {
+      if (op.action === "skip") {
+        console.log(`Skipping file: ${op.name}`);
+        // Optionally, you could toast.info or some other feedback for skipped files
+        continue;
+      }
+
+      if (op.action === "upload") {
+        const fileRecord: TablesInsert<"files"> = {
+          user_id: op.userId,
+          name: op.name,
+          description: op.description === null ? "" : op.description, // Handle null with empty string
+          type: op.file.type,
+          size: op.file.size,
+          file_path: "", // Initialize as empty, will be updated by createFile/createDocXFile
+          tokens: 0 // Initialize as 0, will be updated after embedding
+        };
+
+        let newFile;
+        const fileExtension = op.file.name.split(".").pop()?.toLowerCase();
+        if (fileExtension === "docx") {
+          const arrayBuffer = await op.file.arrayBuffer();
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          newFile = await createDocXFile(
+            result.value, // This text is currently unused in createDocXFile
+            op.file,
+            fileRecord,
+            op.workspaceId
+          );
+        } else {
+          newFile = await createFile(
+            op.file,
+            fileRecord,
+            op.workspaceId
+          );
+        }
+        processedFiles.push(newFile);
+        toast.success(`File "${newFile.name}" uploaded successfully.`);
+
+      } else if (op.action === "overwrite") {
+        if (!op.existingFileId) {
+          toast.error(`Error overwriting "${op.name}": Missing existing file ID.`);
+          throw new Error("existingFileId is required for overwrite action.");
+        }
+
+        const updatePayload: TablesUpdate<"files"> = {
+          name: op.name,
+          description: op.description === null ? undefined : op.description, // For update, undefined might be acceptable to not change if null
+          size: op.file.size,
+          type: op.file.type
+        };
+        
+        // Update metadata first
+        let updatedFileMeta = await updateFile(op.existingFileId, updatePayload);
+
+        // Re-upload the file to storage.
+        // uploadFile uses user_id and file_id for the path and has upsert:true.
+        const newFilePath = await uploadFile(op.file, {
+          user_id: updatedFileMeta.user_id,
+          file_id: op.existingFileId,
+        });
+
+        // Ensure file_path in DB is correct.
+        // It should be consistent if derived from file_id, but this ensures it.
+        if (updatedFileMeta.file_path !== newFilePath) {
+          updatedFileMeta = await updateFile(op.existingFileId, { file_path: newFilePath });
+        }
+        
+        processedFiles.push(updatedFileMeta);
+        toast.success(`File "${updatedFileMeta.name}" overwritten successfully.`);
+      }
+    } catch (error: any) {
+      console.error(`Failed to process file "${op.name}":`, error);
+      toast.error(`Failed to process file "${op.name}": ${error.message || "Unknown error"}`);
+      // Continue to the next file operation
+    }
+  }
+
+  return processedFiles;
+};
