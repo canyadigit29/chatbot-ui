@@ -9,6 +9,7 @@ import { FILE_DESCRIPTION_MAX, FILE_NAME_MAX } from "@/db/limits"
 import React, { FC, useContext, useState, useEffect, useCallback } from "react"
 import { IconTrash, IconAlertCircle, IconCircleCheck } from "@tabler/icons-react"
 import { toast } from "sonner"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet"
 
 export interface SelectedFileData {
   id: string
@@ -31,6 +32,13 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
   const [selectedFilesData, setSelectedFilesData] = useState<SelectedFileData[]>([])
   const [isTyping, setIsTyping] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [duplicateModal, setDuplicateModal] = useState<{
+    open: boolean;
+    fileId: string | null;
+    fileName: string;
+    fileIndex: number | null;
+  }>({ open: false, fileId: null, fileName: "", fileIndex: null });
+  const [renameValue, setRenameValue] = useState("");
 
   // Reset state when modal opens/closes
   useEffect(() => {
@@ -194,6 +202,13 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
     )
   }
 
+  // Helper to handle backend duplicate error
+  const handleBackendDuplicate = (fileId: string, fileName: string) => {
+    const fileIndex = selectedFilesData.findIndex(f => f.id === fileId);
+    setDuplicateModal({ open: true, fileId, fileName, fileIndex });
+    setRenameValue(fileName);
+  };
+
   if (!profile || !selectedWorkspace) return null
 
   // Log profile.user_id before using it
@@ -232,139 +247,189 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
     !allFilesResolvedOrSkipped ||
     noFilesReadyForUpload;
 
+  // Modal action handlers
+  const handleSkip = () => {
+    if (duplicateModal.fileIndex !== null) {
+      setSelectedFilesData(prev => prev.map((item, idx) => idx === duplicateModal.fileIndex ? { ...item, action: "skip", status: "unique" } : item));
+    }
+    setDuplicateModal({ open: false, fileId: null, fileName: "", fileIndex: null });
+  };
+  const handleOverwrite = () => {
+    if (duplicateModal.fileIndex !== null) {
+      setSelectedFilesData(prev => prev.map((item, idx) => idx === duplicateModal.fileIndex ? { ...item, action: "overwrite", status: "unique" } : item));
+    }
+    setDuplicateModal({ open: false, fileId: null, fileName: "", fileIndex: null });
+  };
+  const handleRename = () => {
+    if (duplicateModal.fileIndex !== null) {
+      setSelectedFilesData(prev => prev.map((item, idx) => idx === duplicateModal.fileIndex ? { ...item, name: renameValue, status: "new", action: "upload" } : item));
+    }
+    setDuplicateModal({ open: false, fileId: null, fileName: "", fileIndex: null });
+  };
+
   return (
-    <SidebarCreateItem
-      contentType="files"
-      createState={createStates as any} // Will be updated later
-      isOpen={isOpen}
-      isTyping={isTyping}
-      onOpenChange={onOpenChange}
-      disableCreate={disableCreateButton} // Updated disable logic
-      renderInputs={() => (
-        <>
-          <div className="space-y-1">
-            <Label>Files</Label>
-            <Input
-              type="file"
-              multiple
-              onChange={handleSelectedFiles}
-              accept={ACCEPTED_FILE_TYPES}
-              disabled={isLoading}
-            />
-          </div>
-
-          {selectedFilesData.length > 0 && (
-            <div className="mt-4 space-y-4 max-h-[50vh] overflow-y-auto pr-2">
-              {selectedFilesData.map((fileData: SelectedFileData) => (
-                <div key={fileData.id} className="space-y-3 border p-3 rounded-md relative">
-                  { (fileData.status === "checking" || fileData.status === "renaming_checking") && (
-                    <div className="absolute inset-0 bg-opacity-50 bg-gray-500 flex items-center justify-center rounded-md z-10">
-                      <p className="text-white font-semibold">Checking...</p>
-                    </div>
-                  )}
-                  <div className="flex justify-between items-center">
-                    <Label className="truncate text-sm" title={fileData.originalFilename}>
-                      {fileData.originalFilename} ({(fileData.file.size / 1024).toFixed(2)} KB)
-                    </Label>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemoveFile(fileData.id)}
-                      disabled={isLoading}
-                    >
-                      <IconTrash className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor={`fileName-${fileData.id}`}>Name (without extension)</Label>
-                    <Input
-                      id={`fileName-${fileData.id}`}
-                      placeholder="Enter file name..."
-                      value={fileData.name}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleNameChange(fileData.id, e.target.value)}
-                      maxLength={FILE_NAME_MAX}
-                      onFocus={() => setIsTyping(true)}
-                      onBlur={() => setIsTyping(false)}
-                      disabled={isLoading || fileData.status === "checking" || fileData.status === "renaming_checking"}
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label htmlFor={`fileDescription-${fileData.id}`}>
-                      Description (Optional)
-                    </Label>
-                    <Input
-                      id={`fileDescription-${fileData.id}`}
-                      placeholder="File description..."
-                      value={fileData.description}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        handleDescriptionChange(fileData.id, e.target.value)
-                      }
-                      maxLength={FILE_DESCRIPTION_MAX}
-                      onFocus={() => setIsTyping(true)}
-                      onBlur={() => setIsTyping(false)}
-                      disabled={isLoading || fileData.status === "checking" || fileData.status === "renaming_checking"}
-                    />
-                  </div>
-
-                  {fileData.apiError && (
-                    <p className="text-xs text-red-500">Error: {fileData.apiError}</p>
-                  )}
-
-                  {fileData.status === "unique" && fileData.action !== 'skip' && (
-                    <div className="flex items-center text-xs text-green-600">
-                      <IconCircleCheck className="h-4 w-4 mr-1" /> Ready to {fileData.action === 'overwrite' ? 'overwrite' : 'upload'}.
-                    </div>
-                  )}
-                   {fileData.action === 'skip' && (
-                    <div className="flex items-center text-xs text-gray-500">
-                       Skipped.
-                    </div>
-                  )}
-
-                  {fileData.status === "duplicate" && (
-                    <div className="space-y-2">
-                      <div className="flex items-center text-xs text-red-500">
-                        <IconAlertCircle className="h-4 w-4 mr-1" /> File "{fileData.name}.{fileData.file.name.split('.').pop()}" already exists.
-                      </div>
-                      <div className="flex space-x-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDuplicateAction(fileData.id, "overwrite")}
-                          disabled={isLoading}
-                        >
-                          Overwrite
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            handleDuplicateAction(fileData.id, "rename_initiate")
-                            document.getElementById(`fileName-${fileData.id}`)?.focus()
-                          }}
-                          disabled={isLoading}
-                        >
-                          Rename
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleDuplicateAction(fileData.id, "skip")}
-                          disabled={isLoading}
-                        >
-                          Skip
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+    <>
+      <SidebarCreateItem
+        contentType="files"
+        createState={createStates as any}
+        isOpen={isOpen}
+        isTyping={isTyping}
+        onOpenChange={onOpenChange}
+        disableCreate={disableCreateButton}
+        renderInputs={() => (
+          <>
+            <div className="space-y-1">
+              <Label>Files</Label>
+              <Input
+                type="file"
+                multiple
+                onChange={handleSelectedFiles}
+                accept={ACCEPTED_FILE_TYPES}
+                disabled={isLoading}
+              />
             </div>
-          )}
-        </>
-      )}
-    />
+
+            {selectedFilesData.length > 0 && (
+              <div className="mt-4 space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+                {selectedFilesData.map((fileData: SelectedFileData) => (
+                  <div key={fileData.id} className="space-y-3 border p-3 rounded-md relative">
+                    { (fileData.status === "checking" || fileData.status === "renaming_checking") && (
+                      <div className="absolute inset-0 bg-opacity-50 bg-gray-500 flex items-center justify-center rounded-md z-10">
+                        <p className="text-white font-semibold">Checking...</p>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <Label className="truncate text-sm" title={fileData.originalFilename}>
+                        {fileData.originalFilename} ({(fileData.file.size / 1024).toFixed(2)} KB)
+                      </Label>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleRemoveFile(fileData.id)}
+                        disabled={isLoading}
+                      >
+                        <IconTrash className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label htmlFor={`fileName-${fileData.id}`}>Name (without extension)</Label>
+                      <Input
+                        id={`fileName-${fileData.id}`}
+                        placeholder="Enter file name..."
+                        value={fileData.name}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleNameChange(fileData.id, e.target.value)}
+                        maxLength={FILE_NAME_MAX}
+                        onFocus={() => setIsTyping(true)}
+                        onBlur={() => setIsTyping(false)}
+                        disabled={isLoading || fileData.status === "checking" || fileData.status === "renaming_checking"}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label htmlFor={`fileDescription-${fileData.id}`}>
+                        Description (Optional)
+                      </Label>
+                      <Input
+                        id={`fileDescription-${fileData.id}`}
+                        placeholder="File description..."
+                        value={fileData.description}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          handleDescriptionChange(fileData.id, e.target.value)
+                        }
+                        maxLength={FILE_DESCRIPTION_MAX}
+                        onFocus={() => setIsTyping(true)}
+                        onBlur={() => setIsTyping(false)}
+                        disabled={isLoading || fileData.status === "checking" || fileData.status === "renaming_checking"}
+                      />
+                    </div>
+
+                    {fileData.apiError && (
+                      <p className="text-xs text-red-500">Error: {fileData.apiError}</p>
+                    )}
+
+                    {fileData.status === "unique" && fileData.action !== 'skip' && (
+                      <div className="flex items-center text-xs text-green-600">
+                        <IconCircleCheck className="h-4 w-4 mr-1" /> Ready to {fileData.action === 'overwrite' ? 'overwrite' : 'upload'}.
+                      </div>
+                    )}
+                     {fileData.action === 'skip' && (
+                      <div className="flex items-center text-xs text-gray-500">
+                       Skipped.
+                      </div>
+                    )}
+
+                    {fileData.status === "duplicate" && (
+                      <div className="space-y-2">
+                        <div className="flex items-center text-xs text-red-500">
+                          <IconAlertCircle className="h-4 w-4 mr-1" /> File "{fileData.name}.{fileData.file.name.split('.').pop()}" already exists.
+                        </div>
+                        <div className="flex space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDuplicateAction(fileData.id, "overwrite")}
+                            disabled={isLoading}
+                          >
+                            Overwrite
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              handleDuplicateAction(fileData.id, "rename_initiate")
+                              document.getElementById(`fileName-${fileData.id}`)?.focus()
+                            }}
+                            disabled={isLoading}
+                          >
+                            Rename
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDuplicateAction(fileData.id, "skip")}
+                            disabled={isLoading}
+                          >
+                            Skip
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        onBackendDuplicate={handleBackendDuplicate} // Pass the handler
+      />
+      {/* Duplicate file modal */}
+      <Sheet open={duplicateModal.open} onOpenChange={open => setDuplicateModal(d => ({ ...d, open }))}>
+        <SheetContent side="right" className="max-w-md">
+          <SheetHeader>
+            <SheetTitle>Duplicate File Detected</SheetTitle>
+          </SheetHeader>
+          <div className="py-4">
+            <p className="mb-4">A file named <span className="font-semibold">{duplicateModal.fileName}</span> already exists. How would you like to handle this?</p>
+            <div className="flex flex-col gap-2">
+              <Button variant="destructive" onClick={handleSkip}>Skip</Button>
+              <Button variant="outline" onClick={handleOverwrite}>Overwrite</Button>
+              <div className="flex items-center gap-2 mt-2">
+                <Input
+                  value={renameValue}
+                  onChange={e => setRenameValue(e.target.value)}
+                  placeholder="Enter new file name"
+                  className="flex-1"
+                />
+                <Button variant="default" onClick={handleRename}>Rename & Retry</Button>
+              </div>
+            </div>
+          </div>
+          <SheetFooter>
+            <Button variant="ghost" onClick={() => setDuplicateModal({ open: false, fileId: null, fileName: "", fileIndex: null })}>Cancel</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    </>
   )
 }

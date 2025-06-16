@@ -38,6 +38,7 @@ interface SidebarCreateItemProps {
   renderInputs: () => JSX.Element
   createState: any // For files, this will be FileUploadOperationParams[]
   disableCreate?: boolean
+  onBackendDuplicate?: (fileId: string, fileName: string) => void // Add callback prop
 }
 
 export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
@@ -47,7 +48,8 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
   renderInputs,
   createState,
   isTyping,
-  disableCreate // Added prop
+  disableCreate, // Added prop
+  onBackendDuplicate // New prop
 }) => {
   const {
     selectedWorkspace,
@@ -70,18 +72,29 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
     presets: createPreset,
     prompts: createPrompt,
     files: async (
-      fileOpsParams: FileUploadOperationParams[] // Expect an array of FileUploadOperationParams
+      fileOpsParams: FileUploadOperationParams[]
     ): Promise<DBFile[]> => {
       if (!selectedWorkspace) throw new Error("No workspace selected");
       if (!processFileUploadOperation) {
         toast.error("File processing function is not available. Please update the application.");
         throw new Error("processFileUploadOperation not available");
       }
-
-      // The `createState` (now `fileOpsParams`) is already the array of operations.
-      // Each operation in `fileOpsParams` should already have workspaceId and userId.
-      const results = await processFileUploadOperation(fileOpsParams);
-      return results; // Returns an array of processed DBFile objects or throws an error
+      try {
+        const results = await processFileUploadOperation(fileOpsParams);
+        return results;
+      } catch (error: any) {
+        // Detect backend duplicate error and trigger modal
+        if (error.message && error.message.startsWith("Duplicate file name:")) {
+          // Find the file in fileOpsParams that caused the error
+          const match = /Duplicate file name: '(.+)'/.exec(error.message);
+          const duplicateName = match ? match[1] : "";
+          const duplicateFile = fileOpsParams.find(f => (f.name + (f.file?.name ? "." + f.file.name.split(".").pop() : "")) === duplicateName || f.name === duplicateName);
+          if (onBackendDuplicate && duplicateFile) {
+            onBackendDuplicate(duplicateFile.file?.id || duplicateFile.name, duplicateName);
+          }
+        }
+        throw error;
+      }
     },
     collections: async (
       createState: {
