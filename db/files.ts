@@ -266,6 +266,13 @@ export const processFileUploadOperation = async (
 ): Promise<DBFile[]> => {
   const processedFiles: DBFile[] = [];
 
+  // Fetch the authenticated user once for all operations
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError || !userData?.user?.id) {
+    throw new Error("Could not get authenticated user for file upload.");
+  }
+  const authenticatedUserId = userData.user.id;
+
   for (const op of operations) {
     try {
       if (op.action === "skip") {
@@ -295,7 +302,7 @@ export const processFileUploadOperation = async (
 
       if (op.action === "upload") {
         const fileRecord: TablesInsert<"files"> = {
-          user_id: op.userId,
+          user_id: authenticatedUserId, // Always use authenticated user
           name: validFilename,
           description: op.description === null ? "" : op.description,
           type: op.file.type,
@@ -340,7 +347,7 @@ export const processFileUploadOperation = async (
         // Re-upload the file to storage.
         // uploadFile uses user_id and file_id for the path and has upsert:true.
         const newFilePath = await uploadFile(op.file, {
-          user_id: updatedFileMeta.user_id,
+          user_id: authenticatedUserId,
           file_id: op.existingFileId,
         });
         // Ensure file_path in DB is correct.
