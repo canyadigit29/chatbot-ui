@@ -36,7 +36,6 @@ interface SidebarCreateItemProps {
   contentType: ContentType
   renderInputs: () => JSX.Element
   createState: any
-  onSuccess?: () => void // Added optional onSuccess prop
 }
 
 export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
@@ -45,8 +44,7 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
   contentType,
   renderInputs,
   createState,
-  isTyping,
-  onSuccess // Destructure onSuccess
+  isTyping
 }) => {
   const {
     selectedWorkspace,
@@ -204,7 +202,6 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
 
       onOpenChange(false)
       setCreating(false)
-      if (onSuccess) onSuccess() // Call onSuccess after successful creation
     } catch (error) {
       toast.error(`Error creating ${contentType.slice(0, -1)}. ${error}.`)
       setCreating(false)
