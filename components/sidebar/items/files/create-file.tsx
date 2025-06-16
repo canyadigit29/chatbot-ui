@@ -109,9 +109,9 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
         throw new Error(errorData.message || "Failed to check duplicates")
       }
 
-      const { existingFilenames } = (await response.json()) as {
-        existingFilenames: string[]
-      }
+      const responseData = await response.json();
+      // Ensure existingFilenames is always an array, even if API response is malformed
+      const existingFilenames = (responseData?.existingFilenames || []) as string[];
       
       setSelectedFilesData((prev: SelectedFileData[]) =>
         prev.map((item: SelectedFileData) => {
