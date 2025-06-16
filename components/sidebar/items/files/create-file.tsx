@@ -196,6 +196,9 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
 
   if (!profile || !selectedWorkspace) return null
 
+  // Log profile.user_id before using it
+  console.log("CreateFile: profile.user_id:", profile?.user_id);
+
   const createStates = selectedFilesData
     .filter((item: SelectedFileData) => item.action !== "skip" && (item.status === "unique" || item.action === "overwrite"))
     .map((item: SelectedFileData) => ({
