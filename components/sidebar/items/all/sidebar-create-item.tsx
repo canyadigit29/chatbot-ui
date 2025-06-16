@@ -88,9 +88,13 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
         if (error.message && error.message.startsWith("Duplicate file name:")) {
           const match = /Duplicate file name: '(.+)'/.exec(error.message);
           const duplicateName = match ? match[1] : "";
-          const duplicateFile = fileOpsParams.find(f => f.name === duplicateName);
+          let duplicateFile = fileOpsParams.find(f => f.name === duplicateName);
+          // Fallback: if not found, just use the first file in the params
+          if (!duplicateFile && fileOpsParams.length > 0) {
+            duplicateFile = fileOpsParams[0];
+          }
           if (onBackendDuplicate && duplicateFile) {
-            onBackendDuplicate(duplicateFile.id, duplicateName);
+            onBackendDuplicate(duplicateFile.id, duplicateName || duplicateFile.name);
           }
         }
         throw error;
