@@ -1,3 +1,4 @@
+import React, { FC, useContext, useRef, useState } from "react"; // Ensured React is imported
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -14,7 +15,7 @@ import { createAssistant, updateAssistant } from "@/db/assistants"
 import { createChat } from "@/db/chats"
 import { createCollectionFiles } from "@/db/collection-files"
 import { createCollection } from "@/db/collections"
-import { processFileUploadOperation, FileUploadOperationParams, DBFile } from "@/db/files"
+import { processFileUploadOperation, DBFile } from "@/db/files"
 import { createModel } from "@/db/models"
 import { createPreset } from "@/db/presets"
 import { createPrompt } from "@/db/prompts"
@@ -26,16 +27,20 @@ import { createTool } from "@/db/tools"
 import { convertBlobToBase64 } from "@/lib/blob-to-b64"
 import { Tables, TablesInsert } from "@/supabase/types"
 import { ContentType } from "@/types"
-import React, { FC, useContext, useRef, useState } from "react"
 import { toast } from "sonner"
-import { SelectedFileData } from "@/components/sidebar/items/files/create-file"
+import {
+  SelectedFileData,
+  FileActionType,
+  FileUploadOperationParams
+} from "@/components/sidebar/items/files/create-file"
+
 
 interface SidebarCreateItemProps {
   isOpen: boolean
   isTyping: boolean
   onOpenChange: (isOpen: boolean) => void
   contentType: ContentType
-  renderInputs: () => JSX.Element
+  renderInputs: () => JSX.Element // Consider React.ReactNode if it's more appropriate
   createState: any // For files, this will be FileUploadOperationParams[]
   disableCreate?: boolean
 }
@@ -45,11 +50,12 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
   onOpenChange,
   contentType,
   renderInputs,
-  createState,
+  createState, // This will be cast to FileUploadOperationParams[] for files
   isTyping,
-  disableCreate // Added prop
+  disableCreate
 }) => {
   const {
+    profile, // Profile is now correctly accessed from context
     selectedWorkspace,
     setChats,
     setPresets,
@@ -70,18 +76,60 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
     presets: createPreset,
     prompts: createPrompt,
     files: async (
-      fileOpsParams: FileUploadOperationParams[] // Expect an array of FileUploadOperationParams
+      fileOpsParams: FileUploadOperationParams[] // Typed correctly
     ): Promise<DBFile[]> => {
-      if (!selectedWorkspace) throw new Error("No workspace selected");
-      if (!processFileUploadOperation) {
-        toast.error("File processing function is not available. Please update the application.");
-        throw new Error("processFileUploadOperation not available");
+      if (!profile) {
+        toast.error("User profile not found. Cannot process files.")
+        throw new Error("User profile not available")
+      }
+      if (!selectedWorkspace) {
+        toast.error("No workspace selected. Cannot process files.")
+        throw new Error("No workspace selected")
       }
 
-      // The `createState` (now `fileOpsParams`) is already the array of operations.
-      // Each operation in `fileOpsParams` should already have workspaceId and userId.
-      const results = await processFileUploadOperation(fileOpsParams);
-      return results; // Returns an array of processed DBFile objects or throws an error
+      console.log(
+        "sidebar-create-item: Profile before calling processFileUploadOperation:",
+        JSON.stringify(profile, null, 2)
+      )
+      console.log(
+        "sidebar-create-item: fileOpsParams (createState):",
+        JSON.stringify(fileOpsParams, null, 2)
+      )
+      console.log(
+        "sidebar-create-item: selectedWorkspace.id:",
+        selectedWorkspace.id
+      )
+
+      if (!fileOpsParams || fileOpsParams.length === 0) {
+        console.log("sidebar-create-item: No file operations to process.")
+        return []
+      }
+
+      // Extract DisplayFile[] (which is SelectedFileData[]) and a single FileOperation for the batch.
+      // Assumes a single operation type for the batch, taken from the first item.
+      // This logic might need refinement if operations can differ within a batch.
+      const displayFiles: SelectedFileData[] = fileOpsParams.map(
+        op => op.displayFile
+      )
+      const operationForBatch: FileActionType = fileOpsParams[0].fileOperation
+
+      console.log(
+        "sidebar-create-item: Extracted displayFiles count:",
+        displayFiles.length
+      )
+      console.log(
+        "sidebar-create-item: Extracted operationForBatch:",
+        operationForBatch
+      )
+
+      const results = await processFileUploadOperation(
+        profile, // Pass the whole profile object
+        selectedWorkspace.id,
+        displayFiles,
+        operationForBatch,
+        "chunks" // Source needs to be determined, using "chunks" as placeholder
+      )
+      return results
     },
     collections: async (
       createState: {
@@ -172,6 +220,12 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
       if (!selectedWorkspace) return
       if (disableCreate) return;
 
+      // Cast createState to FileUploadOperationParams[] when contentType is "files"
+      let currentCreateState = createState;
+      if (contentType === "files") {
+        currentCreateState = createState as FileUploadOperationParams[];
+      }
+
       const createFunction = createFunctions[contentType]
       const setStateFunction = stateUpdateFunctions[contentType]
 
@@ -180,27 +234,32 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
       setCreating(true)
 
       if (contentType === "files") {
-        // createState for files is FileUploadOperationParams[]
-        const fileCreationResults = await (createFunction as (params: FileUploadOperationParams[]) => Promise<DBFile[]>)(createState);
+        // currentCreateState is already FileUploadOperationParams[]
+        const fileCreationResults = await (
+          createFunction as (
+            params: FileUploadOperationParams[]
+          ) => Promise<DBFile[]>
+        )(currentCreateState) // Pass currentCreateState
 
-        const successfulUploads = fileCreationResults.filter(Boolean); // Filter out any potential null/undefined from errors not throwing
+        const successfulUploads = fileCreationResults.filter(Boolean)
 
         if (successfulUploads.length > 0) {
-            // Assert the type of setStateFunction for the "files" case
-            const specificSetFiles = setStateFunction as React.Dispatch<React.SetStateAction<Tables<"files">[]>>;
-            
-            specificSetFiles((prevItems) => { // prevItems will be inferred as Tables<"files">[]
-                const updatedItems = [...prevItems];
-                successfulUploads.forEach((newItem) => { // newItem is DBFile (i.e., Tables<"files">)
-                    const existingIndex = updatedItems.findIndex(item => item.id === newItem.id);
-                    if (existingIndex > -1) {
-                        updatedItems[existingIndex] = newItem; 
-                    } else {
-                        updatedItems.push(newItem); 
-                    }
-                });
-                return updatedItems; // Returns Tables<"files">[]
-            });
+          const specificSetFiles = setStateFunction as React.Dispatch<
+            React.SetStateAction<Tables<"files">[]>
+          >
+          
+          specificSetFiles((prevItems) => { // prevItems will be inferred as Tables<"files">[]
+              const updatedItems = [...prevItems];
+              successfulUploads.forEach((newItem) => { // newItem is DBFile (i.e., Tables<"files">)
+                  const existingIndex = updatedItems.findIndex(item => item.id === newItem.id);
+                  if (existingIndex > -1) {
+                      updatedItems[existingIndex] = newItem; 
+                  } else {
+                      updatedItems.push(newItem); 
+                  }
+              });
+              return updatedItems; // Returns Tables<"files">[]
+          });
         }
         
         // Compare successful uploads to the number of operations that were not 'skip'
