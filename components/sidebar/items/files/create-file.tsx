@@ -217,6 +217,7 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
   const createStates = selectedFilesData
     .filter((item: SelectedFileData) => item.action !== "skip" && (item.status === "unique" || item.action === "overwrite"))
     .map((item: SelectedFileData) => ({
+      id: item.id, // Include unique id for backend duplicate handling
       file: item.file,
       user_id: profile.user_id,
       name: item.name, // This is the name to be saved (original or user-edited)
@@ -249,20 +250,20 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
 
   // Modal action handlers
   const handleSkip = () => {
-    if (duplicateModal.fileIndex !== null) {
-      setSelectedFilesData(prev => prev.map((item, idx) => idx === duplicateModal.fileIndex ? { ...item, action: "skip", status: "unique" } : item));
+    if (duplicateModal.fileId) {
+      setSelectedFilesData(prev => prev.map((item) => item.id === duplicateModal.fileId ? { ...item, action: "skip", status: "unique" } : item));
     }
     setDuplicateModal({ open: false, fileId: null, fileName: "", fileIndex: null });
   };
   const handleOverwrite = () => {
-    if (duplicateModal.fileIndex !== null) {
-      setSelectedFilesData(prev => prev.map((item, idx) => idx === duplicateModal.fileIndex ? { ...item, action: "overwrite", status: "unique" } : item));
+    if (duplicateModal.fileId) {
+      setSelectedFilesData(prev => prev.map((item) => item.id === duplicateModal.fileId ? { ...item, action: "overwrite", status: "unique" } : item));
     }
     setDuplicateModal({ open: false, fileId: null, fileName: "", fileIndex: null });
   };
   const handleRename = () => {
-    if (duplicateModal.fileIndex !== null) {
-      setSelectedFilesData(prev => prev.map((item, idx) => idx === duplicateModal.fileIndex ? { ...item, name: renameValue, status: "new", action: "upload" } : item));
+    if (duplicateModal.fileId) {
+      setSelectedFilesData(prev => prev.map((item) => item.id === duplicateModal.fileId ? { ...item, name: renameValue, status: "new", action: "upload" } : item));
     }
     setDuplicateModal({ open: false, fileId: null, fileName: "", fileIndex: null });
   };
