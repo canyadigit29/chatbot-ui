@@ -314,6 +314,10 @@ export const processFileUploadOperation = async (
           .eq("name", validFilename)
           .maybeSingle();
         if (duplicateCheck.data && duplicateCheck.data.id) {
+          // Signal the frontend to open the duplicate modal if handler exists
+          if (typeof window !== 'undefined' && (window as any).openDuplicateModal && op.id) {
+            (window as any).openDuplicateModal(op.id, validFilename);
+          }
           toast.error(`A file named '${validFilename}' already exists. Please rename or overwrite.`);
           throw new Error(`Duplicate file name: '${validFilename}'`);
         }

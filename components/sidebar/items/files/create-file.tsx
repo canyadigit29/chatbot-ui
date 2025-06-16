@@ -137,7 +137,7 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
         })
       )
     } catch (error: any) {
-      toast.error(`Error checking duplicates: ${error.message}`)
+      // toast.error(`Error checking duplicates: ${error.message}`)
       // Revert status for files that were being checked if API fails
       setSelectedFilesData((prev: SelectedFileData[]) =>
         prev.map((item: SelectedFileData) =>
@@ -266,6 +266,15 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
       setSelectedFilesData(prev => prev.map((item) => item.id === duplicateModal.fileId ? { ...item, name: renameValue, status: "new", action: "upload" } : item));
     }
     setDuplicateModal({ open: false, fileId: null, fileName: "", fileIndex: null });
+  };
+
+  // Patch: Intercept duplicate toast and open modal
+  // Replace toast.error in backend duplicate check with a custom handler
+  // In processFileUploadOperation, pass a callback to handle duplicate errors
+  // We'll add a global handler here for demonstration
+  // Add a global function to intercept duplicate errors
+  (window as any).openDuplicateModal = (fileId: string, fileName: string) => {
+    handleBackendDuplicate(fileId, fileName);
   };
 
   return (
