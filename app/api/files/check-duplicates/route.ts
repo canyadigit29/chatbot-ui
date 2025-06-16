@@ -1,56 +1,41 @@
-import { supabaseAdmin } from "@/lib/supabase/admin-client"
+import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
-import { getServerProfile } from "@/lib/server/server-chat-helpers"
+import { cookies } from "next/headers" // Import cookies
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
+  const cookieStore = cookies() // Get cookie store
+  const supabase = createClient(cookieStore) // Create Supabase client instance
+
+  const { fileNames, workspaceId } = await request.json()
+
+  if (!fileNames || !Array.isArray(fileNames) || !workspaceId) {
+    return NextResponse.json(
+      { error: "Missing fileNames array or workspaceId" },
+      { status: 400 }
+    )
+  }
+
   try {
-    const profile = await getServerProfile()
-    if (!profile) {
-      return new NextResponse(JSON.stringify({ message: "Unauthorized" }), {
-        status: 401
-      })
-    }
-
-    const { workspaceId, filenames } = (await req.json()) as {
-      workspaceId: string
-      filenames: string[]
-    }
-
-    if (!workspaceId || !filenames || filenames.length === 0) {
-      return new NextResponse(
-        JSON.stringify({ message: "Missing workspaceId or filenames" }),
-        {
-          status: 400
-        }
-      )
-    }
-
-    const { data: existingFiles, error } = await supabaseAdmin
+    const { data: existingFiles, error } = await supabase
       .from("files")
       .select("name")
+      .in("name", fileNames)
       .eq("workspace_id", workspaceId)
-      .eq("user_id", profile.user_id)
-      .in("name", filenames)
 
     if (error) {
-      console.error("Error checking duplicates:", error)
-      return new NextResponse(
-        JSON.stringify({ message: "Error checking for duplicate files" }),
-        {
-          status: 500
-        }
+      console.error("Error checking duplicate files:", error)
+      return NextResponse.json(
+        { error: "Error checking duplicate files", details: error.message },
+        { status: 500 }
       )
     }
 
-    const existingFilenames = existingFiles?.map(file => file.name) || []
+    const conflictingFileNames =
+      existingFiles?.map((file: { name: string }) => file.name) || []
 
-    return NextResponse.json({ existingFilenames })
+    return NextResponse.json({ conflictingFileNames }, { status: 200 })
   } catch (error: any) {
-    console.error("API Error check-duplicates:", error)
-    const errorMessage = error.message || "An unexpected error occurred"
-    const errorCode = error.status || 500
-    return new NextResponse(JSON.stringify({ message: errorMessage }), {
-      status: errorCode
-    })
+    console.error("Error in check-duplicates route:", error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
