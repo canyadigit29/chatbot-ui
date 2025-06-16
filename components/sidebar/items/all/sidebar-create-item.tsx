@@ -231,7 +231,7 @@ export const SidebarCreateItem: FC<SidebarCreateItemProps> = ({
 
       } else {
         // Original logic for other content types
-        const newItem = await createFunction(createState, selectedWorkspace.id)
+        const newItem = await createFunction(createState, selectedWorkspace.id);
         setStateFunction((prevItems: any) => [...prevItems, newItem])
         toast.success(`${contentType.slice(0, -1)} created successfully!`)
       }
