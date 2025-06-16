@@ -210,7 +210,8 @@ export const CreateFile: FC<CreateFileProps> = ({ isOpen, onOpenChange }) => {
       size: item.file.size,
       tokens: 0,
       type: item.file.type,
-      action: item.action // Pass the action for backend processing
+      action: item.action, // Pass the action for backend processing
+      workspaceId: selectedWorkspace.id // Ensure workspaceId is always sent
     }))
 
   const allFilesResolvedOrSkipped = selectedFilesData.every(
