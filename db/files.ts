@@ -273,6 +273,9 @@ export const processFileUploadOperation = async (
     throw new Error("Could not get authenticated user for file upload.");
   }
   const authenticatedUserId = userData.user.id;
+  
+  // Check if we should use LlamaIndex for processing
+  const useLlamaIndex = process.env.NEXT_PUBLIC_USE_LLAMA_INDEX === "true";
 
   for (const op of operations) {
     try {
@@ -330,8 +333,7 @@ export const processFileUploadOperation = async (
         };
 
         let newFile;
-        const fileExtension = op.file.name.split(".").pop()?.toLowerCase();
-        if (fileExtension === "docx") {
+        const fileExtension = op.file.name.split(".").pop()?.toLowerCase();        if (fileExtension === "docx") {
           const arrayBuffer = await op.file.arrayBuffer();
           const result = await mammoth.extractRawText({ arrayBuffer });
           newFile = await createDocXFile(
@@ -349,6 +351,19 @@ export const processFileUploadOperation = async (
         }
         processedFiles.push(newFile);
         toast.success(`File "${newFile.name}" uploaded successfully.`);
+        
+        // Process file with LlamaIndex if enabled
+        if (useLlamaIndex) {          try {
+            // Import dynamically to avoid issues with SSR
+            const { processFileWithLlamaIndex } = await import('@/lib/llama-index/process');
+            toast.loading(`Processing "${newFile.name}" with LlamaIndex...`);
+            await processFileWithLlamaIndex(newFile.id);
+            toast.success(`File "${newFile.name}" processed with LlamaIndex.`);
+          } catch (error: any) {
+            console.error("Error processing with LlamaIndex:", error);
+            toast.error(`Error processing "${newFile.name}" with LlamaIndex: ${error.message || "Unknown error"}`);
+          }
+        }
       } else if (op.action === "overwrite") {
         if (!op.existingFileId) {
           toast.error(`Error overwriting "${op.name}": Missing existing file ID.`);
