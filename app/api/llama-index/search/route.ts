@@ -14,13 +14,12 @@ export async function POST(request: Request) {
   try {
     // Get the LlamaIndex backend URL from environment variables
     const llamaIndexUrl = process.env.NEXT_PUBLIC_LLAMAINDEX_URL || 
-      "https://llamaindex-production-633d.up.railway.app"
-
-    // Forward the request to the LlamaIndex backend
+      "https://llamaindex-production-633d.up.railway.app"    // Forward the request to the LlamaIndex backend
     const response = await fetch(`${llamaIndexUrl}/query`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.LLAMAINDEX_API_KEY || ""}`
       },
       body: JSON.stringify({
         question: query

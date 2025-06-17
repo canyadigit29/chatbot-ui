@@ -13,11 +13,12 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     
     // Get the LlamaIndex backend URL from environment variables
     const llamaIndexUrl = process.env.NEXT_PUBLIC_LLAMAINDEX_URL || 
-      "https://llamaindex-production-633d.up.railway.app"
-
-    // Forward the delete request to the LlamaIndex backend
+      "https://llamaindex-production-633d.up.railway.app"    // Forward the delete request to the LlamaIndex backend
     const response = await fetch(`${llamaIndexUrl}/delete/${fileId}`, {
-      method: "DELETE"
+      method: "DELETE",
+      headers: {
+        "Authorization": `Bearer ${process.env.LLAMAINDEX_API_KEY || ""}`
+      }
     })
 
     if (!response.ok) {
