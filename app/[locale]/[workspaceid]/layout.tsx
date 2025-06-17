@@ -60,7 +60,15 @@ export default function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (workspaceId === "admin") {
+      return router.push("/admin")
+    }
+
     ;(async () => {
+      if (!workspaceId || workspaceId === "admin") {
+        return
+      }
+
       const session = (await supabase.auth.getSession()).data.session
 
       if (!session) {
