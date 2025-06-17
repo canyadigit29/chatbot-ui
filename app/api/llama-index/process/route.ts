@@ -14,6 +14,9 @@ export async function POST(req: Request) {
       })
     }
     
+    // Define max file size (30MB)
+    const MAX_FILE_SIZE = 30 * 1024 * 1024;
+    
     const profile = await getServerProfile()
     
     // Create a Supabase client with the service role key to get file details
@@ -41,6 +44,16 @@ export async function POST(req: Request) {
       return new NextResponse(
         JSON.stringify({ error: "Unauthorized: You do not have access to this file" }),
         { status: 403 }
+      )
+    }
+    
+    // Check file size
+    if (fileData.size > MAX_FILE_SIZE) {
+      return new NextResponse(
+        JSON.stringify({ 
+          error: `File is too large (${Math.round(fileData.size/1024/1024)}MB). Maximum size is ${Math.round(MAX_FILE_SIZE/1024/1024)}MB.` 
+        }),
+        { status: 413 }
       )
     }
     
