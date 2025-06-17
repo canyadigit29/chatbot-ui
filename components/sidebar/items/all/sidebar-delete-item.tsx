@@ -55,8 +55,22 @@ export const SidebarDeleteItem: FC<SidebarDeleteItemProps> = ({
     },
     prompts: async (prompt: Tables<"prompts">) => {
       await deletePrompt(prompt.id)
-    },
-    files: async (file: Tables<"files">) => {
+    },  files: async (file: Tables<"files">) => {      // First, try to delete from LlamaIndex if enabled
+      try {
+        // Check if LlamaIndex URL is configured, which indicates LlamaIndex is being used
+        const llamaIndexUrl = process.env.NEXT_PUBLIC_LLAMAINDEX_URL;
+        
+        if (llamaIndexUrl) {
+          // Import dynamically to avoid issues with SSR
+          const { deleteFileFromLlamaIndex } = await import('@/lib/llama-index/process');
+          await deleteFileFromLlamaIndex(file.id);
+        }
+      } catch (error) {
+        console.error("Error deleting from LlamaIndex:", error);
+        // Continue with deletion even if LlamaIndex delete fails
+      }
+      
+      // Continue with the normal deletion process
       await deleteFileFromStorage(file.file_path)
       await deleteFile(file.id)
     },

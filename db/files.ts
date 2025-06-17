@@ -273,9 +273,8 @@ export const processFileUploadOperation = async (
     throw new Error("Could not get authenticated user for file upload.");
   }
   const authenticatedUserId = userData.user.id;
-  
-  // Check if we should use LlamaIndex for processing
-  const useLlamaIndex = process.env.NEXT_PUBLIC_USE_LLAMA_INDEX === "true";
+    // Check if we should use LlamaIndex for processing
+  const useLlamaIndex = !!process.env.NEXT_PUBLIC_LLAMAINDEX_URL;
 
   for (const op of operations) {
     try {
