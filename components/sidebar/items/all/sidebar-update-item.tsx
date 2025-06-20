@@ -92,6 +92,7 @@ interface SidebarUpdateItemProps {
   children: React.ReactNode
   renderInputs: (renderState: any) => JSX.Element
   updateState: any
+  onCustomClick?: (e: React.MouseEvent) => boolean | void
 }
 
 export const SidebarUpdateItem: FC<SidebarUpdateItemProps> = ({
@@ -100,7 +101,8 @@ export const SidebarUpdateItem: FC<SidebarUpdateItemProps> = ({
   children,
   renderInputs,
   updateState,
-  isTyping
+  isTyping,
+  onCustomClick
 }) => {
   const {
     workspaces,
@@ -628,10 +630,22 @@ export const SidebarUpdateItem: FC<SidebarUpdateItemProps> = ({
       buttonRef.current?.click()
     }
   }
+  const handleTriggerClick = (e: React.MouseEvent) => {
+    if (onCustomClick) {
+      const result = onCustomClick(e)
+      if (result === false) {
+        return // Prevent sheet from opening
+      }
+    }
+    // Default behavior - open the sheet
+    setIsOpen(true)
+  }
 
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
-      <SheetTrigger asChild>{children}</SheetTrigger>
+      <div onClick={handleTriggerClick}>
+        {children}
+      </div>
 
       <SheetContent
         className="flex min-w-[450px] flex-col justify-between"

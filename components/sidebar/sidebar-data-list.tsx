@@ -16,6 +16,7 @@ import { AssistantItem } from "./items/assistants/assistant-item"
 import { ChatItem } from "./items/chat/chat-item"
 import { CollectionItem } from "./items/collections/collection-item"
 import { FileItem } from "./items/files/file-item"
+import { FileListWrapper } from "./items/files/file-list-wrapper"
 import { Folder } from "./items/folders/folder-item"
 import { ModelItem } from "./items/models/model-item"
 import { PresetItem } from "./items/presets/preset-item"
@@ -237,25 +238,30 @@ export const SidebarDataList: FC<SidebarDataListProps> = ({
             className={`h-full ${
               isOverflowing ? "w-[calc(100%-8px)]" : "w-full"
             } space-y-2 pt-2 ${isOverflowing ? "mr-2" : ""}`}
-          >
-            {folders.map(folder => (
+          >            {folders.map(folder => (
               <Folder
                 key={folder.id}
                 folder={folder}
                 onUpdateFolder={updateFolder}
                 contentType={contentType}
               >
-                {dataWithFolders
-                  .filter(item => item.folder_id === folder.id)
-                  .map(item => (
-                    <div
-                      key={item.id}
-                      draggable
-                      onDragStart={e => handleDragStart(e, item.id)}
-                    >
-                      {getDataListComponent(contentType, item)}
-                    </div>
-                  ))}
+                {contentType === "files" ? (
+                  <FileListWrapper 
+                    files={dataWithFolders.filter(item => item.folder_id === folder.id) as Tables<"files">[]} 
+                  />
+                ) : (
+                  dataWithFolders
+                    .filter(item => item.folder_id === folder.id)
+                    .map(item => (
+                      <div
+                        key={item.id}
+                        draggable
+                        onDragStart={e => handleDragStart(e, item.id)}
+                      >
+                        {getDataListComponent(contentType, item)}
+                      </div>
+                    ))
+                )}
               </Folder>
             ))}
 
@@ -307,6 +313,9 @@ export const SidebarDataList: FC<SidebarDataListProps> = ({
                   }
                 )}
               </>
+            ) : contentType === "files" ? (
+              // Special handling for files to enable multi-select
+              <FileListWrapper files={dataWithoutFolders as Tables<"files">[]} />
             ) : (
               <div
                 className={cn("flex grow flex-col", isDragOver && "bg-accent")}
